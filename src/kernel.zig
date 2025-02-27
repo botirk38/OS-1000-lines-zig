@@ -33,61 +33,33 @@ const Process = struct {
     stack: [STACK_SIZE]u8, // Kernel stack
 
     pub fn create(entry_point: u32) ?*Process {
-
-        // Find an unused process control structure
-        var proc: ?*Process = null;
-        for (0..PROCS_MAX) |i| {
+        // Find an unused process slot
+        const proc_idx = for (0..PROCS_MAX) |i| {
             if (procs[i].state == PROC_UNUSED) {
-                proc = &procs[i];
-                break;
+                break i;
             }
-        }
-
-        if (proc == null) {
+        } else {
             panic("no free process slots", .{});
+        };
+
+        const p = &procs[proc_idx];
+
+        // Setup stack (grows downward)
+        const stack_ptr: [*]u8 = @ptrCast(&p.stack);
+        var sp = @as([*]u32, @alignCast(@ptrCast(stack_ptr))) + (p.stack.len / @sizeOf(u32));
+
+        // Push callee-saved registers (s0-s11) - all zeroed
+        for (0..12) |_| {
+            sp -= 1;
+            sp[0] = 0;
         }
 
-        const p = proc.?;
+        // Set return address to entry point
+        sp -= 1;
+        sp[0] = entry_point;
 
-        // Stack callee-saved registers
-        // First get pointer to the start of the stack, then align and adjust to the end
-        const stack_ptr: [*]u8 = @ptrCast(&p.stack);
-
-        var sp = @as([*]u32, @alignCast(@ptrCast(stack_ptr)));
-        sp = sp + (p.stack.len / @sizeOf(u32)); // Move to end (stack grows downward)
-
-        // Move sp down by one u32 and set it to 0 (for s11)
-        sp -= 1;
-        sp[0] = 0; // s11
-        sp -= 1;
-        sp[0] = 0; // s10
-        sp -= 1;
-        sp[0] = 0; // s9
-        sp -= 1;
-        sp[0] = 0; // s8
-        sp -= 1;
-        sp[0] = 0; // s7
-        sp -= 1;
-        sp[0] = 0; // s6
-        sp -= 1;
-        sp[0] = 0; // s5
-        sp -= 1;
-        sp[0] = 0; // s4
-        sp -= 1;
-        sp[0] = 0; // s3
-        sp -= 1;
-        sp[0] = 0; // s2
-        sp -= 1;
-        sp[0] = 0; // s1
-        sp -= 1;
-        sp[0] = 0; // s0
-        sp -= 1;
-        sp[0] = entry_point; // ra (return address will be the entry point)
-
-        const offset: i32 = @intCast(@intFromPtr(p) - @intFromPtr(&procs[0]));
-
-        p.pid = @divTrunc(offset, @as(i32, @intCast(@sizeOf(Process)))) + 1;
-
+        // Initialize process
+        p.pid = @intCast(proc_idx + 1);
         p.state = PROC_RUNNABLE;
         p.sp = @intFromPtr(sp);
 
@@ -141,10 +113,8 @@ pub fn yield() void {
     // Search for a runnable process
     var next = idle_proc;
     var i: i32 = 0;
-    // Fix the loop condition - should be checking against PROCS_MAX not PROC_RUNNABLE
     while (i < PROCS_MAX) : (i += 1) {
         const pid: i32 = current_proc.?.pid;
-        // Use @mod for signed integers instead of %
         const proc_idx = @mod(pid + i, @as(i32, PROCS_MAX));
         const proc = &procs[@intCast(proc_idx)];
         if (proc.state == PROC_RUNNABLE and proc.pid > 0) {
