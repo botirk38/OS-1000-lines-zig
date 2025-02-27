@@ -2,13 +2,181 @@ const bss = @extern([*]u8, .{ .name = "__bss" });
 const bss_end = @extern([*]u8, .{ .name = "__bss_end" });
 const stack_top = @extern([*]u8, .{ .name = "__stack_top" });
 
-const PAGE_SIZE: u32 = 4096;
 const free_ram = @extern([*]u8, .{ .name = "__free_ram" });
 const free_ram_end = @extern([*]u8, .{ .name = "__free_ram_end" });
 
-var next_free_paddr: u32 = undefined;
-
 const common = @import("common.zig");
+
+// Memory alloc defintions
+var next_free_paddr: u32 = undefined;
+const PAGE_SIZE: u32 = 4096;
+
+// Process definitions
+const PROCS_MAX = 8; // Maximum number of processes
+const PROC_UNUSED = 0; // Unused process control structure
+const PROC_RUNNABLE = 1; // Runnable process
+const STACK_SIZE = 8192; // 8KB
+
+// All process control blocks
+var procs: [PROCS_MAX]Process = undefined;
+
+// Currently running process
+pub var current_proc: ?*Process = null;
+
+// Idle process
+pub var idle_proc: ?*Process = null;
+
+const Process = struct {
+    pid: i32, // Process ID
+    state: i32, // Process state: PROC_UNUSED or PROC_RUNNABLE
+    sp: u32, // Stack pointer
+    stack: [STACK_SIZE]u8, // Kernel stack
+
+    pub fn create(entry_point: u32) ?*Process {
+
+        // Find an unused process control structure
+        var proc: ?*Process = null;
+        for (0..PROCS_MAX) |i| {
+            if (procs[i].state == PROC_UNUSED) {
+                proc = &procs[i];
+                break;
+            }
+        }
+
+        if (proc == null) {
+            panic("no free process slots", .{});
+        }
+
+        const p = proc.?;
+
+        // Stack callee-saved registers
+        // First get pointer to the start of the stack, then align and adjust to the end
+        const stack_ptr: [*]u8 = @ptrCast(&p.stack);
+
+        var sp = @as([*]u32, @alignCast(@ptrCast(stack_ptr)));
+        sp = sp + (p.stack.len / @sizeOf(u32)); // Move to end (stack grows downward)
+
+        // Move sp down by one u32 and set it to 0 (for s11)
+        sp -= 1;
+        sp[0] = 0; // s11
+        sp -= 1;
+        sp[0] = 0; // s10
+        sp -= 1;
+        sp[0] = 0; // s9
+        sp -= 1;
+        sp[0] = 0; // s8
+        sp -= 1;
+        sp[0] = 0; // s7
+        sp -= 1;
+        sp[0] = 0; // s6
+        sp -= 1;
+        sp[0] = 0; // s5
+        sp -= 1;
+        sp[0] = 0; // s4
+        sp -= 1;
+        sp[0] = 0; // s3
+        sp -= 1;
+        sp[0] = 0; // s2
+        sp -= 1;
+        sp[0] = 0; // s1
+        sp -= 1;
+        sp[0] = 0; // s0
+        sp -= 1;
+        sp[0] = entry_point; // ra (return address will be the entry point)
+
+        const offset: i32 = @intCast(@intFromPtr(p) - @intFromPtr(&procs[0]));
+
+        p.pid = @divTrunc(offset, @as(i32, @intCast(@sizeOf(Process)))) + 1;
+
+        p.state = PROC_RUNNABLE;
+        p.sp = @intFromPtr(sp);
+
+        return p;
+    }
+
+    pub fn switchContext(prev_sp: *u32, next_sp: *u32) void {
+        asm volatile (
+            \\addi sp, sp, -13 * 4
+            \\sw ra,  0  * 4(sp)
+            \\sw s0,  1  * 4(sp)
+            \\sw s1,  2  * 4(sp)
+            \\sw s2,  3  * 4(sp)
+            \\sw s3,  4  * 4(sp)
+            \\sw s4,  5  * 4(sp)
+            \\sw s5,  6  * 4(sp)
+            \\sw s6,  7  * 4(sp)
+            \\sw s7,  8  * 4(sp)
+            \\sw s8,  9  * 4(sp)
+            \\sw s9,  10 * 4(sp)
+            \\sw s10, 11 * 4(sp)
+            \\sw s11, 12 * 4(sp)
+            \\sw sp, (%[prev_sp])
+            \\lw sp, (%[next_sp])
+            \\lw ra,  0  * 4(sp)
+            \\lw s0,  1  * 4(sp)
+            \\lw s1,  2  * 4(sp)
+            \\lw s2,  3  * 4(sp)
+            \\lw s3,  4  * 4(sp)
+            \\lw s4,  5  * 4(sp)
+            \\lw s5,  6  * 4(sp)
+            \\lw s6,  7  * 4(sp)
+            \\lw s7,  8  * 4(sp)
+            \\lw s8,  9  * 4(sp)
+            \\lw s9,  10 * 4(sp)
+            \\lw s10, 11 * 4(sp)
+            \\lw s11, 12 * 4(sp)
+            \\addi sp, sp, 13 * 4
+            :
+            : [prev_sp] "r" (prev_sp),
+              [next_sp] "r" (next_sp),
+        );
+    }
+};
+
+// Yield the CPU to another runnable process
+pub fn yield() void {
+    // If no current process, can't yield
+    if (current_proc == null) return;
+
+    // Search for a runnable process
+    var next = idle_proc;
+    var i: i32 = 0;
+    // Fix the loop condition - should be checking against PROCS_MAX not PROC_RUNNABLE
+    while (i < PROCS_MAX) : (i += 1) {
+        const pid: i32 = current_proc.?.pid;
+        // Use @mod for signed integers instead of %
+        const proc_idx = @mod(pid + i, @as(i32, PROCS_MAX));
+        const proc = &procs[@intCast(proc_idx)];
+        if (proc.state == PROC_RUNNABLE and proc.pid > 0) {
+            next = proc;
+            break;
+        }
+    }
+
+    // If there's no runnable process other than the current one, return
+    if (next == current_proc) return;
+
+    // Set sscratch to point to the bottom of the next process's kernel stack
+    asm volatile ("csrw sscratch, %[sscratch]"
+        :
+        : [sscratch] "r" (@intFromPtr(&next.?.stack) + next.?.stack.len),
+    );
+
+    // Context switch
+    const prev = current_proc;
+    current_proc = next;
+    Process.switchContext(&prev.?.sp, &next.?.sp);
+}
+
+// Initialize the process system
+pub fn init() void {
+    // Setup idle process
+    idle_proc = Process.create(0);
+    if (idle_proc) |proc| {
+        proc.pid = 0; // mark as idle process
+    }
+    current_proc = idle_proc;
+}
 
 const SbiCall = struct {
     a0: u32 = 0,
@@ -217,25 +385,68 @@ fn alloc_pages(n: u32) [*]u8 {
     return ptr;
 }
 
+// Delay function for testing
+pub fn delay() void {
+    for (0..30000000) |_| {
+        asm volatile ("nop");
+    }
+}
+
+var proc_a: ?*Process = null;
+var proc_b: ?*Process = null;
+
+// Process A entry function
+fn procAEntry() callconv(.C) void {
+    common.printf("starting process A\n", .{});
+    while (true) {
+        common.printf("Process {c}:\n", .{'A'});
+
+        yield();
+        delay();
+    }
+}
+
+// Process B entry function
+fn procBEntry() callconv(.C) void {
+    common.printf("starting process B\n", .{});
+    while (true) {
+        common.printf("Process {c}:\n", .{'B'});
+
+        yield();
+        delay();
+    }
+}
+
 export fn kernel_main() noreturn {
     const bss_len = bss_end - bss;
     @memset(bss[0..bss_len], 0);
 
-    // Initialize the allocator
-    next_free_paddr = @intFromPtr(free_ram);
+    common.printf("\n\n", .{});
 
-    // Test memory allocation
-    const paddr0 = alloc_pages(2);
-    const paddr1 = alloc_pages(1);
-    common.printf("alloc_pages test: ptr0=0x{x}\n", .{@intFromPtr(paddr0)});
-    common.printf("alloc_pages test: ptr1=0x{x}\n", .{@intFromPtr(paddr1)});
-
-    // Install exception handler
+    // Initialize exception handler
     writeCsr("stvec", @intFromPtr(&kernelEntry));
 
-    common.printf("Hello {s}\n", .{"Kernel!"});
+    // Initialize the process system
+    init();
 
-    while (true) asm volatile ("wfi");
+    // Create test processes
+    proc_a = Process.create(@intFromPtr(&procAEntry));
+    proc_b = Process.create(@intFromPtr(&procBEntry));
+
+    // Start scheduling
+    yield();
+
+    // Should not reach here
+    panic("switched to idle process", .{});
+}
+
+// Get information about free memory
+fn getFreeMemoryInfo() struct { start: u32, end: u32, size: u32 } {
+    return .{
+        .start = @intFromPtr(free_ram),
+        .end = @intFromPtr(free_ram_end),
+        .size = @intFromPtr(free_ram_end) - @intFromPtr(free_ram),
+    };
 }
 
 export fn boot() linksection(".text.boot") callconv(.naked) void {
