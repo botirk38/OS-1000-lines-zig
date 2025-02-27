@@ -1,6 +1,13 @@
 const bss = @extern([*]u8, .{ .name = "__bss" });
 const bss_end = @extern([*]u8, .{ .name = "__bss_end" });
 const stack_top = @extern([*]u8, .{ .name = "__stack_top" });
+
+const PAGE_SIZE: u32 = 4096;
+const free_ram = @extern([*]u8, .{ .name = "__free_ram" });
+const free_ram_end = @extern([*]u8, .{ .name = "__free_ram_end" });
+
+var next_free_paddr: u32 = undefined;
+
 const common = @import("common.zig");
 
 const SbiCall = struct {
@@ -190,20 +197,43 @@ pub fn panic(comptime fmt: []const u8, args: anytype) noreturn {
     }
 }
 
+fn alloc_pages(n: u32) [*]u8 {
+    // Global variable to track the next free address
+    const paddr = next_free_paddr;
+    next_free_paddr += n * PAGE_SIZE;
+
+    // Check if we've run out of memory
+    if (next_free_paddr > @intFromPtr(free_ram_end)) {
+        panic("out of memory", .{});
+    }
+
+    // Calculate pointer to the allocated memory
+    const ptr: [*]u8 = @ptrFromInt(paddr);
+
+    // Zero the allocated memory
+    const size = n * PAGE_SIZE;
+    @memset(ptr[0..size], 0);
+
+    return ptr;
+}
+
 export fn kernel_main() noreturn {
     const bss_len = bss_end - bss;
     @memset(bss[0..bss_len], 0);
+
+    // Initialize the allocator
+    next_free_paddr = @intFromPtr(free_ram);
+
+    // Test memory allocation
+    const paddr0 = alloc_pages(2);
+    const paddr1 = alloc_pages(1);
+    common.printf("alloc_pages test: ptr0=0x{x}\n", .{@intFromPtr(paddr0)});
+    common.printf("alloc_pages test: ptr1=0x{x}\n", .{@intFromPtr(paddr1)});
 
     // Install exception handler
     writeCsr("stvec", @intFromPtr(&kernelEntry));
 
     common.printf("Hello {s}\n", .{"Kernel!"});
-
-    // Trigger an illegal instruction exception for testing
-    asm volatile ("csrrw x0, cycle, x0"); // unimp instruction
-
-    // Should not reach here
-    common.printf("This should not be reached!\n", .{});
 
     while (true) asm volatile ("wfi");
 }
