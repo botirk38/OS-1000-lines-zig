@@ -4,12 +4,22 @@ const stack_top = @extern([*]u8, .{ .name = "__stack_top" });
 
 const free_ram = @extern([*]u8, .{ .name = "__free_ram" });
 const free_ram_end = @extern([*]u8, .{ .name = "__free_ram_end" });
+const kernel_base = @extern([*]u8, .{ .name = "__kernel_base" });
 
 const common = @import("common.zig");
 
 // Memory alloc defintions
 var next_free_paddr: u32 = undefined;
 const PAGE_SIZE: u32 = 4096;
+
+// Page Table definitions
+
+const SATP_SV32 = 1 << 31;
+const PAGE_V: u32 = 1 << 0; // Valid bit
+const PAGE_R: u32 = 1 << 1; // Readable
+const PAGE_W: u32 = 1 << 2; // Writable
+const PAGE_X: u32 = 1 << 3; // Executable
+const PAGE_U: u32 = 1 << 4; // User (accessible in user mode)
 
 // Process definitions
 const PROCS_MAX = 8; // Maximum number of processes
@@ -26,11 +36,39 @@ pub var current_proc: ?*Process = null;
 // Idle process
 pub var idle_proc: ?*Process = null;
 
+fn is_aligned(addr: u32, size: u32) bool {
+    return addr & (size - 1) == 0;
+}
+
+fn map_page(table1: [*]u32, vaddr: u32, paddr: u32, flags: u32) void {
+    if (!is_aligned(vaddr, PAGE_SIZE)) {
+        panic("unaligned vaddr {x}", .{vaddr});
+    }
+
+    if (!is_aligned(paddr, PAGE_SIZE)) {
+        panic("unaligned paddr {x}", .{paddr});
+    }
+
+    const vpn1 = (vaddr >> 22) & 0x3ff;
+
+    if ((table1[vpn1] & PAGE_V) == 0) {
+        // Create the non-existent 2nd level page table
+        const pt_paddr: u32 = @intFromPtr(alloc_pages(1));
+        table1[vpn1] = ((pt_paddr / PAGE_SIZE) << 10) | PAGE_V;
+    }
+    const vpn0 = (vaddr >> 12) & 0x3ff;
+
+    const table0_paddr = (table1[vpn1] >> 10) * PAGE_SIZE;
+    const table0: [*]u32 = @ptrFromInt(table0_paddr);
+    table0[vpn0] = ((paddr / PAGE_SIZE) << 10) | flags | PAGE_V;
+}
+
 const Process = struct {
     pid: i32, // Process ID
     state: i32, // Process state: PROC_UNUSED or PROC_RUNNABLE
     sp: u32, // Stack pointer
-    stack: [STACK_SIZE]u8, // Kernel stack
+    stack: [STACK_SIZE]u8, // Kernel stacka
+    page_table: [*]u32,
 
     pub fn create(entry_point: u32) ?*Process {
         // Find an unused process slot
@@ -58,10 +96,23 @@ const Process = struct {
         sp -= 1;
         sp[0] = entry_point;
 
+        // Create page table
+        const page_table = @as([*]u32, @alignCast(@ptrCast(alloc_pages(1))));
+
+        // Map kernel pages
+        const free_ram_end_addr: usize = @intFromPtr(free_ram_end);
+
+        var paddr: u32 = @intFromPtr(kernel_base);
+
+        while (paddr < free_ram_end_addr) : (paddr += PAGE_SIZE) {
+            map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
+        }
+
         // Initialize process
         p.pid = @intCast(proc_idx + 1);
         p.state = PROC_RUNNABLE;
         p.sp = @intFromPtr(sp);
+        p.page_table = page_table;
 
         return p;
     }
@@ -106,6 +157,7 @@ const Process = struct {
 };
 
 // Yield the CPU to another runnable process
+
 pub fn yield() void {
     // If no current process, can't yield
     if (current_proc == null) return;
@@ -126,15 +178,21 @@ pub fn yield() void {
     // If there's no runnable process other than the current one, return
     if (next == current_proc) return;
 
-    // Set sscratch to point to the bottom of the next process's kernel stack
-    asm volatile ("csrw sscratch, %[sscratch]"
-        :
-        : [sscratch] "r" (@intFromPtr(&next.?.stack) + next.?.stack.len),
-    );
-
-    // Context switch
+    // Context switch and page table switch
     const prev = current_proc;
     current_proc = next;
+
+    // Switch page tables using sfence.vma for TLB flush
+    asm volatile (
+        \\sfence.vma
+        \\csrw satp, %[satp]
+        \\sfence.vma
+        \\csrw sscratch, %[sscratch]
+        :
+        : [satp] "r" (SATP_SV32 | (@intFromPtr(next.?.page_table) / PAGE_SIZE)),
+          [sscratch] "r" (@intFromPtr(&next.?.stack) + next.?.stack.len),
+    );
+
     Process.switchContext(&prev.?.sp, &next.?.sp);
 }
 
@@ -395,6 +453,8 @@ export fn kernel_main() noreturn {
 
     // Initialize exception handler
     writeCsr("stvec", @intFromPtr(&kernelEntry));
+
+    next_free_paddr = @intFromPtr(free_ram);
 
     // Initialize the process system
     init();
