@@ -3,6 +3,7 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const exe = b.addExecutable(.{ .name = "kernel.elf", .root_source_file = b.path("src/kernel.zig"), .target = b.resolveTargetQuery(.{ .cpu_arch = .riscv32, .os_tag = .freestanding, .abi = .none }), .optimize = .ReleaseSmall, .strip = false });
     exe.setLinkerScript(b.path("src/kernel.ld"));
+    exe.setLinkerScript(b.path("src/user.ld"));
 
     exe.entry = .disabled;
 
