@@ -446,7 +446,7 @@ fn procBEntry() callconv(.C) void {
 }
 
 export fn kernel_main() noreturn {
-    const bss_len = bss_end - bss;
+    const bss_len = @intFromPtr(bss_end) - @intFromPtr(bss);
     @memset(bss[0..bss_len], 0);
 
     common.printf("\n\n", .{});
@@ -479,7 +479,7 @@ fn getFreeMemoryInfo() struct { start: u32, end: u32, size: u32 } {
     };
 }
 
-export fn boot() linksection(".text.boot") callconv(.naked) void {
+export fn boot() linksection(".text.boot") callconv(.Naked) void {
     asm volatile (
         \\mv sp, %[stack_top]
         \\j kernel_main
