@@ -20,14 +20,14 @@ extern const __free_ram_end: [*]u8;
 
 const user_bin = @embedFile("user.bin");
 
-fn writeCsr(comptime reg: []const u8, value: u32) void {
+fn write_csr(comptime reg: []const u8, value: u32) void {
     asm volatile ("csrw " ++ reg ++ ", %[val]"
         :
         : [val] "r" (value),
     );
 }
 
-fn userEntry() callconv(.Naked) void {
+fn user_entry() callconv(.Naked) void {
     asm volatile (
         \\csrw sepc, %[sepc]
         \\csrw sstatus, %[sstatus]
@@ -50,11 +50,11 @@ export fn kernel_main() noreturn {
 
     common.printf("\n[rk] booting kernel...\n", .{});
 
-    writeCsr("stvec", @intFromPtr(&kernelEntry));
+    write_csr("stvec", @intFromPtr(&kernelEntry));
     memory.next_free_paddr = @intFromPtr(__free_ram);
 
     process.init();
-    _ = process.Process.create(@intFromPtr(&userEntry), user_bin);
+    _ = process.Process.create(@intFromPtr(&user_entry), user_bin);
 
     yield();
 
