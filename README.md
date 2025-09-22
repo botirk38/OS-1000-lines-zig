@@ -1,62 +1,141 @@
 # OS-1000-lines-zig
 
-## Project Overview
-The OS-1000-lines-zig repository is a Zig-based operating system project. The primary purpose of this project is to create a simple, lightweight operating system with a focus on performance and scalability. The key features of this project include:
+A minimal RISC-V operating system kernel written in Zig, demonstrating modern systems programming practices with clean modular architecture.
 
-* A monolithic kernel architecture
-* Support for basic process management and memory management
-* A simple command-line interface
+## Features
 
-## Getting Started
-To get started with the OS-1000-lines-zig project, you will need to have the following prerequisites installed on your system:
+* **RISC-V 32-bit Architecture**: Native support for RISC-V with SV32 virtual memory
+* **Process Management**: Basic process creation, scheduling, and context switching
+* **Memory Management**: Page-based virtual memory with SV32 paging
+* **SBI Interface**: Clean abstraction over RISC-V Supervisor Binary Interface
+* **Modular Design**: Well-organized codebase following Zig best practices
+* **Error Handling**: Proper error propagation and type safety
 
-* Zig compiler (version 0.10.0 or later)
-* A code editor or IDE of your choice
-* A terminal or command prompt
+## Prerequisites
 
-To install the project, follow these steps:
+* **Zig 0.15.1+**: The Zig compiler
+* **QEMU**: For RISC-V emulation (`qemu-system-riscv32`)
+* **LLVM tools**: For binary conversion (`llvm-objcopy`)
 
-1. Clone the repository using the command `git clone https://github.com/botirk38/OS-1000-lines-zig.git`
-2. Navigate to the project directory using the command `cd OS-1000-lines-zig`
-3. Build the project using the command `zig build`
+### Installation on Ubuntu/Debian
 
-## Usage
-To use the OS-1000-lines-zig project, follow these steps:
+```bash
+# Install QEMU and LLVM tools
+sudo apt update
+sudo apt install qemu-system-misc llvm
 
-1. Run the project using the command `zig run`
-2. Interact with the command-line interface to execute commands and view output
+# Install Zig (download from https://ziglang.org/download/)
+wget https://ziglang.org/download/0.15.1/zig-linux-x86_64-0.15.1.tar.xz
+tar -xf zig-linux-x86_64-0.15.1.tar.xz
+sudo mv zig-linux-x86_64-0.15.1 /opt/zig
+export PATH="/opt/zig:$PATH"
+```
 
-Some basic examples of usage include:
+## Quick Start
 
-* Running a simple "Hello World" program
-* Viewing system information such as memory usage and process list
+```bash
+# Clone the repository
+git clone https://github.com/botirk38/OS-1000-lines-zig.git
+cd OS-1000-lines-zig
 
-## Architecture Overview
-The OS-1000-lines-zig project uses a monolithic kernel architecture, which means that the kernel and user space are combined into a single executable. The kernel is responsible for managing processes, memory, and other system resources.
+# Build the kernel and user program
+zig build
 
-The project includes several key components, including:
+# Run in QEMU
+zig build run
+```
 
-* `src/kernel.zig`: The kernel implementation, which provides basic process management and memory management functionality.
-* `src/common.zig`: A utility file that provides common functions and macros used throughout the project.
-* `build.zig`: The build script, which is used to compile and link the project.
+## Project Structure
 
-## Configuration
-The project uses a simple configuration file to store settings and options. To modify the configuration, edit the `config.zig` file and rebuild the project.
+```
+src/
+├── arch/           # Architecture-specific code
+│   └── riscv32.zig # RISC-V 32-bit implementation
+├── hal/            # Hardware Abstraction Layer
+│   └── console.zig # Console I/O abstraction
+├── mm/             # Memory Management
+│   ├── allocator.zig # Page allocator
+│   └── paging.zig    # Virtual memory management
+├── proc/           # Process Management
+│   └── process.zig   # Process creation and scheduling
+├── platform/       # Platform-specific interfaces
+│   └── sbi.zig      # RISC-V SBI interface
+├── debug/          # Debug utilities
+│   └── panic.zig    # Panic and assertion handling
+├── common.zig      # Common utilities
+├── kernel.zig      # Main kernel entry point
+└── user.zig        # Simple user program
+```
+
+## Architecture
+
+### Memory Layout
+- **Kernel Space**: Virtual addresses 0x80000000+
+- **User Space**: Virtual addresses 0x01000000+
+- **Page Size**: 4KB with SV32 paging
+
+### Process Model
+- Simple round-robin scheduler
+- Process creation with ELF loading
+- Context switching via RISC-V CSRs
+
+### Hardware Interface
+- SBI calls for console I/O and system services
+- Trap handling for exceptions and interrupts
+- Virtual memory management with page tables
+
+## Development
+
+### Building
+```bash
+# Build only
+zig build
+
+# Build and run in QEMU
+zig build run
+
+# Clean build artifacts
+rm -rf zig-cache zig-out
+```
+
+### Debugging
+The kernel includes panic handling and debug assertions. Monitor output shows:
+- Boot messages
+- Process creation
+- User space execution
+- Panic information on errors
+
+### Testing
+```bash
+# Run any Zig tests (if present)
+zig test src/common.zig
+```
+
+## QEMU Usage
+
+The kernel runs in QEMU with the following configuration:
+- **Machine**: `virt` (RISC-V virtual platform)
+- **BIOS**: Default OpenSBI
+- **Serial**: Console output via UART
+- **Monitor**: Telnet on port 55556
+
+To exit QEMU: `Ctrl+A, X` or use the monitor interface.
 
 ## Contributing
-Contributions to the project are welcome! To contribute, please fork the repository and submit a pull request with your changes.
+
+This project demonstrates clean systems programming in Zig. Contributions should:
+
+1. Follow Zig coding standards
+2. Maintain modular architecture
+3. Include proper error handling
+4. Add documentation for new features
 
 ## License
-The OS-1000-lines-zig project is licensed under the MIT License. See the `LICENSE` file for more information.
 
-## Testing and Validation
-The project includes automated tests and validation scripts to ensure its correctness and stability. To run the tests, use the command `zig test`.
+MIT License - see LICENSE file for details.
 
-## Future Development
-There are several areas for future development and expansion of the operating system, including:
+## References
 
-* Adding support for more advanced process management and memory management features
-* Implementing a more robust command-line interface
-* Adding support for networking and file systems
-
-If you are interested in contributing to the project, please see the `CONTRIBUTING.md` file for more information.
+- [RISC-V Specification](https://riscv.org/specifications/)
+- [Zig Language Reference](https://ziglang.org/documentation/)
+- [SBI Specification](https://github.com/riscv-non-isa/riscv-sbi-doc)

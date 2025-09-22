@@ -1,7 +1,14 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    const exe = b.addExecutable(.{ .name = "kernel.elf", .root_source_file = b.path("src/kernel.zig"), .target = b.resolveTargetQuery(.{ .cpu_arch = .riscv32, .os_tag = .freestanding, .abi = .none }), .optimize = .ReleaseSmall, .strip = false });
+    const exe = b.addExecutable(.{
+        .name = "kernel.elf",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/kernel.zig"),
+            .target = b.resolveTargetQuery(.{ .cpu_arch = .riscv32, .os_tag = .freestanding, .abi = .none }),
+            .optimize = .ReleaseSmall,
+        }),
+    });
     exe.setLinkerScript(b.path("src/kernel.ld"));
 
     exe.entry = .disabled;
@@ -10,14 +17,15 @@ pub fn build(b: *std.Build) void {
 
     const user = b.addExecutable(.{
         .name = "user.elf",
-        .root_source_file = b.path("src/user.zig"),
-        .target = b.resolveTargetQuery(.{
-            .cpu_arch = .riscv32,
-            .os_tag = .freestanding,
-            .abi = .none,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/user.zig"),
+            .target = b.resolveTargetQuery(.{
+                .cpu_arch = .riscv32,
+                .os_tag = .freestanding,
+                .abi = .none,
+            }),
+            .optimize = .ReleaseSmall,
         }),
-        .optimize = .ReleaseSmall,
-        .strip = false,
     });
 
     user.entry = .disabled;
@@ -40,6 +48,8 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addAnonymousImport("user.bin", .{
         .root_source_file = bin,
     });
+
+    exe.step.dependOn(&elf2bin.step);
 
     const run_cmd = b.addSystemCommand(&.{"qemu-system-riscv32"});
     run_cmd.addArgs(&.{ "-machine", "virt", "-bios", "default", "-serial", "mon:stdio", "-monitor", "telnet:127.0.0.1:55556,server,nowait", "--no-reboot", "-nographic", "-kernel" });

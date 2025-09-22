@@ -1,27 +1,18 @@
-const stack_top = @extern([*]u8, .{ .name = "__stack_top" });
+//! User space program
+//! Simple user program that demonstrates process execution
 
-const common = @import("common.zig");
+const console = @import("hal/console.zig");
 
-pub export fn exit() noreturn {
-    while (true) {}
-}
+/// User program entry point
+export fn main() noreturn {
+    console.writeString("Hello from user space!\n");
 
-pub fn putchar() void {
-    // TODO: Will be implemented later
-}
-
-pub export fn start() callconv(.C) noreturn {
-    asm volatile (
-        \\mv sp, %[stack_top]
-        \\call main
-        \\call exit
-        :
-        : [stack_top] "r" (stack_top),
-        : "memory"
-    );
-    unreachable;
-}
-
-pub export fn main() void {
-    while (true) {}
+    // Simple loop to demonstrate user space execution
+    var counter: u32 = 0;
+    while (true) {
+        counter += 1;
+        if (counter % 10000000 == 0) {
+            console.writeString("User process running...\n");
+        }
+    }
 }

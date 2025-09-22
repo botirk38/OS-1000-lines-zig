@@ -1,7 +1,6 @@
 zig-cache/
 zig-out/
 release/
-debug/
 *.o
 *.exe
 *.exp
