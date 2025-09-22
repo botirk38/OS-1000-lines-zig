@@ -17,18 +17,50 @@ A minimal RISC-V operating system kernel written in Zig, demonstrating modern sy
 * **QEMU**: For RISC-V emulation (`qemu-system-riscv32`)
 * **LLVM tools**: For binary conversion (`llvm-objcopy`)
 
-### Installation on Ubuntu/Debian
+### Installation Instructions
 
+#### Ubuntu/Debian
 ```bash
 # Install QEMU and LLVM tools
 sudo apt update
 sudo apt install qemu-system-misc llvm
 
-# Install Zig (download from https://ziglang.org/download/)
+# Verify QEMU RISC-V support
+qemu-system-riscv32 --version
+```
+
+#### macOS (with Homebrew)
+```bash
+# Install QEMU and LLVM
+brew install qemu llvm
+
+# Add LLVM to PATH (for objcopy)
+export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
+```
+
+#### Arch Linux
+```bash
+# Install QEMU and LLVM
+sudo pacman -S qemu-system-riscv llvm
+
+# Verify installation
+qemu-system-riscv32 --version
+```
+
+#### Installing Zig
+```bash
+# Download Zig 0.15.1+ from https://ziglang.org/download/
+# For Linux x86_64:
 wget https://ziglang.org/download/0.15.1/zig-linux-x86_64-0.15.1.tar.xz
 tar -xf zig-linux-x86_64-0.15.1.tar.xz
 sudo mv zig-linux-x86_64-0.15.1 /opt/zig
 export PATH="/opt/zig:$PATH"
+
+# For macOS (or use brew install zig):
+# wget https://ziglang.org/download/0.15.1/zig-macos-x86_64-0.15.1.tar.xz
+
+# Verify Zig installation
+zig version
 ```
 
 ## Quick Start
@@ -111,15 +143,87 @@ The kernel includes panic handling and debug assertions. Monitor output shows:
 zig test src/common.zig
 ```
 
-## QEMU Usage
+## QEMU Setup and Usage
+
+### QEMU Configuration
 
 The kernel runs in QEMU with the following configuration:
+- **Architecture**: RISC-V 32-bit (`qemu-system-riscv32`)
 - **Machine**: `virt` (RISC-V virtual platform)
-- **BIOS**: Default OpenSBI
-- **Serial**: Console output via UART
-- **Monitor**: Telnet on port 55556
+- **BIOS**: Default OpenSBI firmware
+- **Memory**: 128MB default
+- **Serial**: Console output via UART (stdio)
+- **Monitor**: Telnet interface on port 55556
 
-To exit QEMU: `Ctrl+A, X` or use the monitor interface.
+### Running the Kernel
+
+```bash
+# Automated run (recommended)
+zig build run
+
+# Manual QEMU invocation (equivalent to above)
+qemu-system-riscv32 \
+  -machine virt \
+  -bios default \
+  -serial mon:stdio \
+  -monitor telnet:127.0.0.1:55556,server,nowait \
+  --no-reboot \
+  -nographic \
+  -kernel zig-out/bin/kernel.elf
+```
+
+### QEMU Controls
+
+- **Exit QEMU**: `Ctrl+A, X`
+- **Monitor interface**: Connect to `telnet localhost 55556`
+- **Pause/Resume**: `Ctrl+A, S` / `Ctrl+A, R`
+- **Reset**: `Ctrl+A, R` (or use monitor command `system_reset`)
+
+### Expected Output
+
+When running successfully, you should see:
+```
+OpenSBI v1.3.1
+...
+[rk] booting kernel...
+Hello from user space!
+User process running...
+```
+
+### Troubleshooting
+
+#### QEMU Not Found
+```bash
+# Verify QEMU is installed with RISC-V support
+qemu-system-riscv32 --version
+which qemu-system-riscv32
+
+# On some systems, try:
+sudo apt install qemu-system-riscv32  # Debian-based
+brew install qemu                     # macOS
+```
+
+#### Build Errors
+```bash
+# Clean and rebuild
+rm -rf zig-cache zig-out
+zig build
+
+# Check Zig version (needs 0.15.1+)
+zig version
+```
+
+#### No Output
+- Ensure your terminal supports the console output
+- Try running with `-serial stdio` instead of `-serial mon:stdio`
+- Check that OpenSBI loads (you should see OpenSBI banner)
+
+#### Permission Issues
+```bash
+# On some Linux systems, add user to kvm group for better performance
+sudo usermod -a -G kvm $USER
+# Logout and login again
+```
 
 ## Contributing
 
