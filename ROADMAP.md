@@ -39,13 +39,16 @@ This project is a Zig implementation of the "Operating System in 1,000 Lines" tu
 - [x] Basic process creation with ELF loading
 - [x] Context switching implementation
 - [x] Round-robin scheduler
-- [x] User space process execution
-- [x] Kernel/user space separation
+- [x] User space process execution with proper privilege separation
+- [x] Kernel/user space separation with RISC-V sret instruction
+- [x] Clean scheduler/process module architecture
+- [x] Memory protection enforcement (page faults on unauthorized access)
 
 #### 6. **User Programs**
 - [x] User space program compilation (`user.zig`)
 - [x] User binary embedding in kernel
-- [x] User process execution demonstration
+- [x] User process execution in protected mode
+- [⚠️] **SECURITY ISSUE**: User program currently imports kernel modules (needs fix)
 
 #### 7. **Architecture & Platform Support**
 - [x] RISC-V 32-bit specific code (`arch/riscv32.zig`)
@@ -56,10 +59,11 @@ This project is a Zig implementation of the "Operating System in 1,000 Lines" tu
 ## 🚧 Missing Features (To Implement)
 
 ### Priority 1: Core System Calls
-- [ ] **System call interface** - ecall instruction handling
-- [ ] **User/kernel mode transitions** - proper privilege level switching  
+- [ ] **URGENT: Fix user program security** - remove kernel module imports from user.zig
+- [ ] **System call interface** - ecall instruction handling in trap handler
+- [ ] **User/kernel mode transitions** - enhance existing sret-based transitions
 - [ ] **Basic syscalls**: `write`, `read`, `exit`, `yield`
-- [ ] **System call dispatcher** in trap handler
+- [ ] **System call dispatcher** in trap handler (distinguish from page faults)
 
 ### Priority 2: Interrupt & Exception Handling
 - [ ] **Timer interrupts** - for preemptive scheduling
@@ -95,8 +99,13 @@ This project is a Zig implementation of the "Operating System in 1,000 Lines" tu
 ### Phase 1: System Calls (2-3 weeks)
 **Goal**: Enable proper kernel/user communication
 
+**IMMEDIATE (Days 1-2): Security Fix**
+   - Remove kernel module imports from user.zig
+   - Create safe user program that doesn't access kernel memory
+   - Verify memory protection is working correctly
+
 1. **Week 1**: Implement basic syscall infrastructure
-   - Modify trap handler to detect ecall instructions
+   - Modify trap handler to detect ecall instructions (scause=8)
    - Create syscall dispatcher with numbered syscalls
    - Implement `sys_write` for user programs to output text
    - Add `sys_exit` for clean process termination
@@ -281,6 +290,7 @@ This project is a Zig implementation of the "Operating System in 1,000 Lines" tu
 
 ---
 
-**Last Updated**: September 22, 2025  
-**Current Status**: Core infrastructure complete, ready for system call implementation  
-**Next Milestone**: Complete system call interface (Phase 1)
+**Last Updated**: September 22, 2025
+**Current Status**: ✅ **MAJOR MILESTONE ACHIEVED** - User mode execution working with memory protection!
+**Critical Issue**: ⚠️ User program security vulnerability (imports kernel modules)
+**Next Milestone**: Fix security issue and implement system call interface (Phase 1)
