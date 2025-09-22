@@ -3,8 +3,7 @@
 
 const std = @import("std");
 
-/// SBI call arguments structure
-pub const SbiArgs = struct {
+pub const SbiCall = struct {
     a0: u32 = 0,
     a1: u32 = 0,
     a2: u32 = 0,
@@ -15,42 +14,27 @@ pub const SbiArgs = struct {
     eid: u32,
 };
 
-/// SBI call result
-pub const SbiResult = struct {
-    err: i32,
-    value: i32,
+pub const SbiRet = struct {
+    err: u32,
+    value: u32,
 };
 
-/// Make an SBI call with the given arguments
-pub fn call(args: SbiArgs) SbiResult {
-    var err: i32 = undefined;
-    var value: i32 = undefined;
-
-    asm volatile (
-        \\mv a0, %[a0]
-        \\mv a1, %[a1]
-        \\mv a2, %[a2]
-        \\mv a3, %[a3]
-        \\mv a4, %[a4]
-        \\mv a5, %[a5]
-        \\mv a6, %[fid]
-        \\mv a7, %[eid]
-        \\ecall
-        \\mv %[err], a0
-        \\mv %[value], a1
-        : [err] "=r" (err),
-          [value] "=r" (value),
-        : [a0] "r" (args.a0),
-          [a1] "r" (args.a1),
-          [a2] "r" (args.a2),
-          [a3] "r" (args.a3),
-          [a4] "r" (args.a4),
-          [a5] "r" (args.a5),
-          [fid] "r" (args.fid),
-          [eid] "r" (args.eid),
-        : .{ .memory = true }
-    );
-    return .{ .err = err, .value = value };
+pub fn call(args: SbiCall) SbiRet {
+    var err: u32 = undefined;
+    var val: u32 = undefined;
+    asm volatile ("ecall"
+        : [err] "={a0}" (err),
+          [val] "={a1}" (val),
+        : [arg0] "{a0}" (args.a0),
+          [arg1] "{a1}" (args.a1),
+          [arg2] "{a2}" (args.a2),
+          [arg3] "{a3}" (args.a3),
+          [arg4] "{a4}" (args.a4),
+          [arg5] "{a5}" (args.a5),
+          [fid] "{a6}" (args.fid),
+          [eid] "{a7}" (args.eid),
+        : .{ .memory = true });
+    return .{ .err = err, .value = val };
 }
 
 /// SBI Extension IDs
@@ -74,18 +58,11 @@ pub const Extension = enum(u32) {
 
 /// Put a character using SBI legacy console
 pub fn putChar(c: u8) void {
-    _ = call(.{
-        .a0 = c,
-        .fid = 0,
-        .eid = @intFromEnum(Extension.legacy_console_putchar),
-    });
+    _ = call(.{ .a0 = c, .fid = 0, .eid = 1 });
 }
 
 /// Shutdown the system using SBI
 pub fn shutdown() noreturn {
-    _ = call(.{
-        .fid = 0,
-        .eid = @intFromEnum(Extension.legacy_shutdown),
-    });
+    _ = call(.{ .fid = 0, .eid = 8 });
     unreachable;
 }

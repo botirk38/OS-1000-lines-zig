@@ -7,6 +7,7 @@ const console = @import("hal/console.zig");
 const debug = @import("debug/panic.zig");
 const allocator = @import("mm/allocator.zig");
 const process = @import("proc/process.zig");
+const scheduler = @import("proc/scheduler.zig");
 const common = @import("common.zig");
 
 const user_bin = @embedFile("user.bin");
@@ -14,6 +15,7 @@ const user_bin = @embedFile("user.bin");
 extern const __bss: [*]u8;
 extern const __bss_end: [*]u8;
 extern const __free_ram: [*]u8;
+extern const __free_ram_end: [*]u8;
 
 const USER_BASE: u32 = 0x1000000;
 
@@ -25,27 +27,34 @@ export fn kernel_main() noreturn {
 
     common.printf("\n[rk] booting kernel...\n", .{});
 
+    common.printf("[rk] setting trap vector...\n", .{});
     // Initialize subsystems
     arch.csr.write("stvec", @intFromPtr(&arch.kernelEntry));
-    allocator.init(@intFromPtr(__free_ram));
 
-    process.Scheduler.init() catch |err| {
+    common.printf("[rk] initializing allocator...\n", .{});
+    const free_ram = @extern([*]u8, .{ .name = "__free_ram" });
+    const free_ram_end = @extern([*]u8, .{ .name = "__free_ram_end" });
+    common.printf("[rk] __free_ram={x}, __free_ram_end={x}\n", .{ @intFromPtr(free_ram), @intFromPtr(free_ram_end) });
+    allocator.init(@intFromPtr(free_ram));
+
+    common.printf("[rk] initializing scheduler...\n", .{});
+    scheduler.Scheduler.init() catch |err| {
         debug.panic("Failed to initialize scheduler: {}", .{err});
     };
 
-    // Create user process
-    _ = process.Process.create(@intFromPtr(&userEntry), user_bin) catch |err| {
+    // Create user process with USER_BASE as entry point (where user binary is loaded)
+    _ = process.Process.create(USER_BASE, user_bin) catch |err| {
         debug.panic("Failed to create user process: {}", .{err});
     };
 
     // Start scheduling
-    process.Scheduler.yield();
+    scheduler.Scheduler.yield();
 
     debug.panic("unexpected return from yield", .{});
 }
 
-/// User entry point setup
-fn userEntry() callconv(.naked) void {
+/// User entry point setup - transitions from supervisor to user mode
+export fn user_entry() callconv(.naked) void {
     asm volatile (
         \\csrw sepc, %[sepc]
         \\csrw sstatus, %[sstatus]
@@ -62,18 +71,10 @@ export fn handleTrap(frame: *arch.TrapFrame) callconv(.c) void {
     const stval = arch.csr.read("stval");
     const sepc = arch.csr.read("sepc");
 
-    debug.panic("trap: scause={x}, stval={x}, sepc={x}, ra={x}, sp={x}",
-        .{ scause, stval, sepc, frame.ra, frame.sp });
+    debug.panic("trap: scause={x}, stval={x}, sepc={x}, ra={x}, sp={x}", .{ scause, stval, sepc, frame.ra, frame.sp });
 }
 
 /// Yield CPU to next process
 export fn yield() void {
-    process.Scheduler.yield();
-}
-
-/// Delay function for testing
-pub fn delay() void {
-    for (0..30_000_000) |_| {
-        asm volatile ("nop");
-    }
+    scheduler.Scheduler.yield();
 }

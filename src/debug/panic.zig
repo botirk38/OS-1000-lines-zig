@@ -26,3 +26,4 @@ pub fn debug(comptime fmt: []const u8, args: anytype) void {
         console.printf("[DEBUG] " ++ fmt ++ "\n", args);
     }
 }
+

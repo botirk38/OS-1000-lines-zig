@@ -10,7 +10,10 @@ const arch = @import("../arch/riscv32.zig");
 const PageFlags = allocator.PageFlags;
 const PAGE_SIZE = allocator.PAGE_SIZE;
 
-const PROCS_MAX = 8;
+extern const __kernel_base: [*]u8;
+extern const __free_ram_end: [*]u8;
+
+pub const PROCS_MAX = 8;
 const USER_BASE = 0x1000000;
 const STACK_SIZE = 8192;
 
@@ -33,18 +36,22 @@ pub const Process = struct {
 
     /// Create a new process
     pub fn create(entry_point: u32, image: ?[]const u8) !*Process {
+        const scheduler = @import("scheduler.zig");
         for (0..PROCS_MAX) |i| {
-            if (procs[i].state == .free) {
-                return try initProcess(i, entry_point, image);
+            if (scheduler.procs[i].state == .free) {
+                return initProcess(i, entry_point, image);
             }
         }
         return error.NoFreeProcessSlots;
     }
 
     /// Initialize a process in the given slot
-    fn initProcess(index: usize, entry: u32, image: ?[]const u8) !*Process {
-        const p = &procs[index];
+    fn initProcess(index: usize, entry: u32, image: ?[]const u8) *Process {
+        common.printf("[rk] initProcess: starting...\n", .{});
+        const scheduler = @import("scheduler.zig");
+        const p = &scheduler.procs[index];
 
+        common.printf("[rk] initProcess: setting up stack...\n", .{});
         // Set up stack pointer as [*]u32 aligned to word boundary
         var sp: [*]u32 = @ptrCast(@alignCast(&p.stack));
         sp += STACK_SIZE / @sizeOf(u32);
@@ -55,37 +62,49 @@ pub const Process = struct {
             sp[0] = 0;
         }
 
-        // Push return address (entry point)
+        // Push return address (user_entry for user processes, 0 for idle process)
         sp -= 1;
-        sp[0] = entry;
+        if (entry == 0) {
+            sp[0] = 0; // idle process
+        } else {
+            // Get user_entry function address from kernel
+            const user_entry = @extern(*const fn () callconv(.naked) void, .{ .name = "user_entry" });
+            sp[0] = @intFromPtr(user_entry);
+        }
 
+        common.printf("[rk] initProcess: allocating page table...\n", .{});
         // Allocate and align page table
-        const pt_slice = try allocator.allocPages(1);
-        const pt: [*]u32 = @ptrCast(@alignCast(pt_slice.ptr));
+        const pt_paddr = allocator.allocPages(1);
+        const pt: [*]u32 = @ptrFromInt(pt_paddr);
 
+        common.printf("[rk] initProcess: mapping kernel pages...\n", .{});
         // Map kernel pages into user page table
-        const kernel_base = @intFromPtr(@extern([*]u8, .{ .name = "__kernel_base" }));
-        const free_ram_end = @intFromPtr(@extern([*]u8, .{ .name = "__free_ram_end" }));
+        const kernel_base_sym = @extern([*]u8, .{ .name = "__kernel_base" });
+        const free_ram_end_sym = @extern([*]u8, .{ .name = "__free_ram_end" });
+        const kernel_base = @intFromPtr(kernel_base_sym);
+        const free_ram_end = @intFromPtr(free_ram_end_sym);
 
+        common.printf("[rk] kernel_base={x}, free_ram_end={x}\n", .{ kernel_base, free_ram_end });
         var paddr: u32 = @intCast(kernel_base);
+        common.printf("[rk] starting memory mapping loop...\n", .{});
         while (paddr < free_ram_end) : (paddr += PAGE_SIZE) {
-            try paging.mapPage(pt, paddr, paddr,
-                @intFromEnum(PageFlags.read) |
+            paging.mapPage(pt, paddr, paddr, @intFromEnum(PageFlags.read) |
                 @intFromEnum(PageFlags.write) |
                 @intFromEnum(PageFlags.exec));
         }
+        common.printf("[rk] memory mapping complete\n", .{});
 
         // Load image if provided
         if (image) |img| {
             var off: usize = 0;
             while (off < img.len) {
-                const page = try allocator.allocPages(1);
+                const page_paddr = allocator.allocPages(1);
+                const page: [*]u8 = @ptrFromInt(page_paddr);
                 const copy_len = @min(PAGE_SIZE, img.len - off);
                 @memcpy(page[0..copy_len], img[off..][0..copy_len]);
                 const offset: u32 = @intCast(off);
                 const vaddr = USER_BASE + offset;
-                try paging.mapPage(pt, vaddr, @intFromPtr(page.ptr),
-                    @intFromEnum(PageFlags.read) |
+                paging.mapPage(pt, vaddr, page_paddr, @intFromEnum(PageFlags.read) |
                     @intFromEnum(PageFlags.write) |
                     @intFromEnum(PageFlags.exec) |
                     @intFromEnum(PageFlags.user));
@@ -112,54 +131,3 @@ pub const Process = struct {
         arch.switchContext(prev_sp, next_sp);
     }
 };
-
-/// Process scheduler
-pub const Scheduler = struct {
-    /// Initialize the scheduler with an idle process
-    pub fn init() !void {
-        idle_proc = try Process.create(0, null);
-        if (idle_proc) |p| p.pid = 0;
-        current_proc = idle_proc;
-    }
-
-    /// Yield CPU to the next runnable process
-    pub fn yield() void {
-        if (current_proc == null) return;
-
-        var next = idle_proc;
-        for (0..PROCS_MAX) |i| {
-            const pid = current_proc.?.pid;
-            const idx = @mod(pid + i, PROCS_MAX);
-            const p = &procs[idx];
-
-            if (p.state == .runnable and p.pid > 0) {
-                next = p;
-                break;
-            }
-        }
-
-        if (next == current_proc) return;
-
-        const prev = current_proc;
-        current_proc = next;
-
-        const SATP_SV32 = arch.SATP_SV32;
-
-        asm volatile (
-            \\sfence.vma
-            \\csrw satp, %[satp]
-            \\sfence.vma
-            \\csrw sscratch, %[sscratch]
-            :
-            : [satp] "r" (SATP_SV32 | (@intFromPtr(next.?.page_table) / PAGE_SIZE)),
-              [sscratch] "r" (@intFromPtr(&next.?.stack) + next.?.stack.len),
-        );
-
-        Process.switchContext(&prev.?.sp, &next.?.sp);
-    }
-};
-
-/// Global process table and scheduler state
-pub var procs: [PROCS_MAX]Process = undefined;
-pub var current_proc: ?*Process = null;
-pub var idle_proc: ?*Process = null;

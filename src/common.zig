@@ -41,3 +41,4 @@ pub fn alignDown(addr: u32, alignment: u32) u32 {
 pub fn isAligned(addr: u32, alignment: u32) bool {
     return (addr & (alignment - 1)) == 0;
 }
+

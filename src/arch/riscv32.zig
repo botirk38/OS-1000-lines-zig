@@ -179,7 +179,7 @@ pub fn kernelEntry() callconv(.naked) void {
 }
 
 /// Boot entry point
-pub fn boot() linksection(".text.boot") callconv(.naked) void {
+export fn boot() linksection(".text.boot") callconv(.naked) void {
     asm volatile (
         \\mv sp, %[stack_top]
         \\j kernel_main

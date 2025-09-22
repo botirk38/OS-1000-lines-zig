@@ -52,7 +52,7 @@ pub fn build(b: *std.Build) void {
     exe.step.dependOn(&elf2bin.step);
 
     const run_cmd = b.addSystemCommand(&.{"qemu-system-riscv32"});
-    run_cmd.addArgs(&.{ "-machine", "virt", "-bios", "default", "-serial", "mon:stdio", "-monitor", "telnet:127.0.0.1:55556,server,nowait", "--no-reboot", "-nographic", "-kernel" });
+    run_cmd.addArgs(&.{ "-machine", "virt", "-bios", "default", "-nographic", "-serial", "mon:stdio", "--no-reboot", "-kernel" });
 
     run_cmd.addArtifactArg(exe);
 
