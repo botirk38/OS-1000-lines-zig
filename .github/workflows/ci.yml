@@ -1,0 +1,233 @@
+name: OS-1000-Lines-Zig CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  ZIG_VERSION: "0.15.1"
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Zig
+      uses: korandoru/setup-zig@v1
+      with:
+        zig-version: ${{ env.ZIG_VERSION }}
+
+    - name: Verify Zig installation
+      run: zig version
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y qemu-system-misc llvm
+
+    - name: Verify QEMU installation
+      run: |
+        qemu-system-riscv32 --version
+        llvm-objdump --version
+
+    - name: Run Zig fmt check
+      run: zig fmt --check src/
+
+    - name: Build kernel
+      run: zig build
+
+    - name: Run unit tests
+      run: zig test src/common.zig
+
+    - name: Verify kernel binary
+      run: |
+        ls -la zig-out/bin/
+        file zig-out/bin/kernel.elf
+        llvm-objdump -h zig-out/bin/kernel.elf
+
+  build-matrix:
+    name: Build on ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Zig
+      uses: korandoru/setup-zig@v1
+      with:
+        zig-version: ${{ env.ZIG_VERSION }}
+
+    - name: Install dependencies (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y qemu-system-misc llvm
+
+    - name: Install dependencies (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        brew install qemu llvm
+
+    - name: Build kernel
+      run: zig build
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: kernel-${{ matrix.os }}
+        path: zig-out/bin/
+
+  qemu-test:
+    name: QEMU Boot Test
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Zig
+      uses: korandoru/setup-zig@v1
+      with:
+        zig-version: ${{ env.ZIG_VERSION }}
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y qemu-system-misc llvm expect
+
+    - name: Build kernel
+      run: zig build
+
+    - name: Create QEMU test script
+      run: |
+        cat > test_boot.expect << 'EOF'
+        #!/usr/bin/expect -f
+        set timeout 30
+        
+        spawn qemu-system-riscv32 -machine virt -bios default -nographic -serial mon:stdio --no-reboot -kernel zig-out/bin/kernel.elf
+        
+        expect {
+          "booting kernel" {
+            puts "✓ Kernel boot message detected"
+            exp_continue
+          }
+          "Hello from user space" {
+            puts "✓ User space execution confirmed"
+            exp_continue
+          }
+          "User process running" {
+            puts "✓ User process is running successfully"
+            # Send Ctrl+A, X to exit QEMU
+            send "\x01x"
+            expect eof
+            exit 0
+          }
+          timeout {
+            puts "✗ Timeout waiting for expected output"
+            exit 1
+          }
+          eof {
+            puts "✗ Unexpected end of output"
+            exit 1
+          }
+        }
+        EOF
+        chmod +x test_boot.expect
+
+    - name: Test kernel boot in QEMU
+      run: ./test_boot.expect
+
+  code-analysis:
+    name: Code Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Zig
+      uses: korandoru/setup-zig@v1
+      with:
+        zig-version: ${{ env.ZIG_VERSION }}
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y qemu-system-misc llvm cloc
+
+    - name: Build kernel
+      run: zig build
+
+    - name: Generate code statistics
+      run: |
+        echo "## Code Statistics" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        cloc src/ --exclude-dir=.zig-cache >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+    - name: Analyze binary size
+      run: |
+        echo "## Binary Analysis" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        echo "Kernel binary size:" >> $GITHUB_STEP_SUMMARY
+        ls -lh zig-out/bin/kernel.elf >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Section sizes:" >> $GITHUB_STEP_SUMMARY
+        llvm-objdump -h zig-out/bin/kernel.elf >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+    - name: Memory layout analysis
+      run: |
+        echo "## Memory Layout" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        llvm-nm --size-sort zig-out/bin/kernel.elf | head -20 >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  release:
+    name: Create Release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: [test, build-matrix, qemu-test]
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Zig
+      uses: korandoru/setup-zig@v1
+      with:
+        zig-version: ${{ env.ZIG_VERSION }}
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y qemu-system-misc llvm
+
+    - name: Build release kernel
+      run: zig build -Doptimize=ReleaseFast
+
+    - name: Create release package
+      run: |
+        mkdir -p release
+        cp zig-out/bin/kernel.elf release/
+        cp zig-out/bin/user.elf release/
+        cp README.md release/
+        cp ROADMAP.md release/
+        tar -czf os-1000-lines-zig-latest.tar.gz -C release .
+
+    - name: Upload release artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-package
+        path: os-1000-lines-zig-latest.tar.gz
