@@ -1,27 +1,24 @@
-const stack_top = @extern([*]u8, .{ .name = "__stack_top" });
+//! User space program
+//! Simple user program that demonstrates process execution
 
-const common = @import("common.zig");
-
-pub export fn exit() noreturn {
-    while (true) {}
-}
-
-pub fn putchar() void {
-    // TODO: Will be implemented later
-}
-
-pub export fn start() callconv(.C) noreturn {
+/// User program entry point - assembly stub to call main
+export fn start() linksection(".text.start") callconv(.naked) void {
     asm volatile (
-        \\mv sp, %[stack_top]
         \\call main
-        \\call exit
-        :
-        : [stack_top] "r" (stack_top),
-        : "memory"
     );
-    unreachable;
 }
 
-pub export fn main() void {
-    while (true) {}
+/// User program main function - simple infinite loop for now
+export fn main() noreturn {
+    // Simple loop to demonstrate user space execution
+    // TODO: Add system calls for proper I/O
+    var counter: u32 = 0;
+    while (true) {
+        counter += 1;
+        // Just loop - no console access until we implement syscalls
+        if (counter % 100000000 == 0) {
+            // This will be replaced with a syscall later
+            asm volatile ("nop");
+        }
+    }
 }

@@ -1,0 +1,51 @@
+name: Quick Test
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  ZIG_VERSION: "0.15.1"
+
+jobs:
+  quick-test:
+    name: Quick Build and Test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Zig
+      uses: korandoru/setup-zig@v1
+      with:
+        zig-version: ${{ env.ZIG_VERSION }}
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y qemu-system-misc llvm
+
+    - name: Build and test
+      run: |
+        echo "Building kernel..."
+        zig build
+        
+        echo "Checking binary..."
+        file zig-out/bin/kernel.elf
+        
+        echo "Running basic tests..."
+        zig test src/common.zig
+        
+        echo "Quick smoke test in QEMU (5 second timeout)..."
+        timeout 5s qemu-system-riscv32 \
+          -machine virt \
+          -bios default \
+          -nographic \
+          -serial mon:stdio \
+          --no-reboot \
+          -kernel zig-out/bin/kernel.elf || true
+        
+        echo "✓ Quick test completed"
