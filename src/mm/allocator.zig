@@ -2,9 +2,10 @@
 //! Provides a simple bump allocator for kernel memory allocation
 
 const std = @import("std");
-const common = @import("../common.zig");
+const fmt = @import("fmt");
+const layout = @import("layout");
 
-pub const PAGE_SIZE: u32 = 4096;
+pub const PAGE_SIZE: u32 = layout.PAGE_SIZE;
 
 /// Page flags for memory mapping
 pub const PageFlags = enum(u32) {
@@ -20,16 +21,19 @@ var next_free_paddr: u32 = undefined;
 
 // External memory layout symbols from linker script will be accessed via @extern
 
-/// Initialize the allocator with the free memory region
+/// Initialize the allocator with the free memory region.
+/// Must be called once at kernel startup before any allocations.
 pub fn init(free_ram_start: u32) void {
-    common.printf("[allocator] init: free_ram_start={x}\n", .{free_ram_start});
+    fmt.printf("[allocator] init: free_ram_start={x}\n", .{free_ram_start});
     next_free_paddr = free_ram_start;
-    common.printf("[allocator] init: next_free_paddr={x}\n", .{next_free_paddr});
+    fmt.printf("[allocator] init: next_free_paddr={x}\n", .{next_free_paddr});
 }
 
-/// Allocate n pages of memory and return physical address
+/// Allocate n pages of memory and return physical address.
+/// Pages are zeroed before being returned.
+/// Panics if out of memory or if n is 0.
 pub fn allocPages(n: u32) u32 {
-    common.printf("[allocator] allocPages: n={}, PAGE_SIZE={}\n", .{n, PAGE_SIZE});
+    fmt.printf("[allocator] allocPages: n={}, PAGE_SIZE={}\n", .{ n, PAGE_SIZE });
 
     if (n == 0) {
         @panic("Invalid page count");
@@ -37,14 +41,14 @@ pub fn allocPages(n: u32) u32 {
 
     const paddr = next_free_paddr;
     const size = n * PAGE_SIZE;
-    common.printf("[allocator] allocPages: paddr={x}, size={x}\n", .{paddr, size});
+    fmt.printf("[allocator] allocPages: paddr={x}, size={x}\n", .{ paddr, size });
 
     next_free_paddr += size;
-    common.printf("[allocator] allocPages: new next_free_paddr={x}\n", .{next_free_paddr});
+    fmt.printf("[allocator] allocPages: new next_free_paddr={x}\n", .{next_free_paddr});
 
     const free_ram_end = @extern([*]u8, .{ .name = "__free_ram_end" });
     const end_addr = @intFromPtr(free_ram_end);
-    common.printf("[allocator] allocPages: checking bounds, end_addr={x}\n", .{end_addr});
+    fmt.printf("[allocator] allocPages: checking bounds, end_addr={x}\n", .{end_addr});
 
     if (next_free_paddr > end_addr) {
         @panic("Out of memory");
@@ -53,19 +57,19 @@ pub fn allocPages(n: u32) u32 {
     // Check if the memory region is valid
     const free_ram = @extern([*]u8, .{ .name = "__free_ram" });
     const start_addr = @intFromPtr(free_ram);
-    common.printf("[allocator] allocPages: start_addr={x}\n", .{start_addr});
+    fmt.printf("[allocator] allocPages: start_addr={x}\n", .{start_addr});
 
     if (paddr < start_addr or paddr >= end_addr) {
         @panic("Invalid memory address range");
     }
 
-    common.printf("[allocator] allocPages: creating pointer from paddr={x}\n", .{paddr});
+    fmt.printf("[allocator] allocPages: creating pointer from paddr={x}\n", .{paddr});
     const ptr: [*]u8 = @ptrFromInt(paddr);
 
-    common.printf("[allocator] allocPages: calling @memset, size={}\n", .{size});
+    fmt.printf("[allocator] allocPages: calling @memset, size={}\n", .{size});
     @memset(ptr[0..size], 0);
 
-    common.printf("[allocator] allocPages: returning paddr={x}\n", .{paddr});
+    fmt.printf("[allocator] allocPages: returning paddr={x}\n", .{paddr});
     return paddr;
 }
 
@@ -81,4 +85,3 @@ pub fn getStats() struct { used: u32, total: u32, free: u32 } {
 
     return .{ .used = used, .total = total, .free = free };
 }
-

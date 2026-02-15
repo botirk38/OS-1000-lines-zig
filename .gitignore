@@ -20,3 +20,6 @@ release/
 *.bin
 *.log
 *.pcap
+zig-build-docs.txt
+zig-docs.txt
+operating-system-in-1000-lines/

@@ -2,18 +2,21 @@
 //! Implements cooperative multitasking with round-robin scheduling
 
 const std = @import("std");
-const common = @import("../common.zig");
-const arch = @import("../arch/riscv32.zig");
-const process = @import("process.zig");
+const fmt = @import("fmt");
+const arch = @import("arch");
+const process = @import("process");
+const allocator = @import("allocator");
 
 /// Global process table and scheduler state
 pub var procs: [process.PROCS_MAX]process.Process = undefined;
 pub var current_proc: ?*process.Process = null;
 pub var idle_proc: ?*process.Process = null;
 
-/// Process scheduler
+/// Process scheduler implementing cooperative round-robin scheduling.
+/// Maintains global process table and handles context switching between processes.
 pub const Scheduler = struct {
-    /// Initialize the scheduler with an idle process
+    /// Initialize the scheduler and create the idle process.
+    /// Must be called once at kernel startup before creating user processes.
     pub fn init() !void {
         // Initialize process table - all processes start as free
         for (0..process.PROCS_MAX) |i| {
@@ -29,14 +32,16 @@ pub const Scheduler = struct {
 
         // Create idle process with NULL entry point (as per documentation)
         idle_proc = process.Process.create(0, null) catch |err| {
-            common.printf("[PANIC] Failed to create idle process: {}\n", .{err});
+            fmt.printf("[PANIC] Failed to create idle process: {}\n", .{err});
             @panic("Failed to create idle process");
         };
         if (idle_proc) |p| p.pid = 0;
         current_proc = idle_proc;
     }
 
-    /// Yield CPU to the next runnable process
+    /// Yield CPU to the next runnable process using round-robin scheduling.
+    /// Switches page tables and performs context switch to the selected process.
+    /// If no runnable process is found, switches to the idle process.
     pub fn yield() void {
         if (current_proc == null) return;
 
@@ -59,7 +64,6 @@ pub const Scheduler = struct {
         current_proc = next;
 
         const SATP_SV32 = arch.SATP_SV32;
-        const allocator = @import("../mm/allocator.zig");
 
         asm volatile (
             \\sfence.vma

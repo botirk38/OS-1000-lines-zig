@@ -1,6 +1,3 @@
-//! RISC-V Supervisor Binary Interface (SBI) implementation
-//! Provides standardized interface to firmware/hypervisor services
-
 const std = @import("std");
 
 pub const SbiCall = struct {
@@ -37,7 +34,6 @@ pub fn call(args: SbiCall) SbiRet {
     return .{ .err = err, .value = val };
 }
 
-/// SBI Extension IDs
 pub const Extension = enum(u32) {
     legacy_set_timer = 0x00,
     legacy_console_putchar = 0x01,
@@ -56,12 +52,10 @@ pub const Extension = enum(u32) {
     srst = 0x53525354,
 };
 
-/// Put a character using SBI legacy console
 pub fn putChar(c: u8) void {
     _ = call(.{ .a0 = c, .fid = 0, .eid = 1 });
 }
 
-/// Shutdown the system using SBI
 pub fn shutdown() noreturn {
     _ = call(.{ .fid = 0, .eid = 8 });
     unreachable;
