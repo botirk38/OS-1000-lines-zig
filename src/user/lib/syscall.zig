@@ -8,8 +8,7 @@ fn syscall(num: u32, arg0: u32, arg1: u32, arg2: u32) i32 {
           [arg0] "{a0}" (arg0),
           [arg1] "{a1}" (arg1),
           [arg2] "{a2}" (arg2),
-        : .{ .memory = true }
-    );
+        : .{ .memory = true });
     return ret;
 }
 
