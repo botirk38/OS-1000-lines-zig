@@ -74,6 +74,13 @@ jobs:
       if: matrix.os == 'macos-latest'
       run: |
         brew install qemu llvm
+        echo "$(brew --prefix llvm)/bin" >> $GITHUB_PATH
+
+    - name: Verify llvm-objcopy (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        which llvm-objcopy
+        llvm-objcopy --version
 
     - name: Build kernel
       run: zig build
