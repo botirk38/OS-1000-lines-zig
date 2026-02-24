@@ -23,6 +23,42 @@ pub const csr = struct {
 /// RISC-V specific constants
 pub const SATP_SV32: u32 = 1 << 31;
 pub const SSTATUS_SPIE: u32 = 1 << 5;
+pub const ECALL_FROM_U = 8;
+pub const ECALL_FROM_S = 9;
+
+pub const SCAUSE_INTERRUPT_BIT: u32 = 1 << 31;
+pub const SCAUSE_CODE_MASK: u32 = 0x7fff_ffff;
+// Exception codes (when interrupt bit is 0)
+pub const EXC_INST_ADDR_MISALIGNED: u32 = 0;
+pub const EXC_INST_ACCESS_FAULT: u32 = 1;
+pub const EXC_ILLEGAL_INSTRUCTION: u32 = 2;
+pub const EXC_BREAKPOINT: u32 = 3;
+pub const EXC_LOAD_ADDR_MISALIGNED: u32 = 4;
+pub const EXC_LOAD_ACCESS_FAULT: u32 = 5;
+pub const EXC_STORE_ADDR_MISALIGNED: u32 = 6;
+pub const EXC_STORE_ACCESS_FAULT: u32 = 7;
+pub const EXC_ECALL_FROM_U: u32 = 8;
+pub const EXC_ECALL_FROM_S: u32 = 9;
+pub const EXC_INST_PAGE_FAULT: u32 = 12;
+pub const EXC_LOAD_PAGE_FAULT: u32 = 13;
+pub const EXC_STORE_PAGE_FAULT: u32 = 15;
+// Interrupt codes (when interrupt bit is 1)
+pub const IRQ_SOFTWARE_S: u32 = 1;
+pub const IRQ_TIMER_S: u32 = 5;
+pub const IRQ_EXTERNAL_S: u32 = 9;
+
+pub fn isInterrupt(scause: u32) bool {
+    return (scause & SCAUSE_INTERRUPT_BIT) != 0;
+}
+pub fn causeCode(scause: u32) u32 {
+    return scause & SCAUSE_CODE_MASK;
+}
+pub fn isException(scause: u32, code: u32) bool {
+    return !isInterrupt(scause) and causeCode(scause) == code;
+}
+pub fn isInterruptCode(scause: u32, code: u32) bool {
+    return isInterrupt(scause) and causeCode(scause) == code;
+}
 
 /// Trap frame structure for RISC-V register context
 pub const TrapFrame = packed struct {

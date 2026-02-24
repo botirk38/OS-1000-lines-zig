@@ -56,6 +56,11 @@ pub fn putChar(c: u8) void {
     _ = call(.{ .a0 = c, .fid = 0, .eid = 1 });
 }
 
+pub fn getChar() i32 {
+    const ret = call(.{ .fid = 0, .eid = 2 });
+    return @bitCast(ret.err);
+}
+
 pub fn shutdown() noreturn {
     _ = call(.{ .fid = 0, .eid = 8 });
     unreachable;

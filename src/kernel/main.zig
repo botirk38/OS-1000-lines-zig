@@ -6,6 +6,7 @@ const allocator = @import("allocator");
 const layout = @import("layout");
 const process = @import("process");
 const scheduler = @import("scheduler");
+const syscall = @import("syscall");
 
 const user_bin = @embedFile("user.bin");
 
@@ -62,6 +63,12 @@ export fn handleTrap(frame: *arch.TrapFrame) callconv(.c) void {
     const scause = arch.csr.read("scause");
     const stval = arch.csr.read("stval");
     const sepc = arch.csr.read("sepc");
+
+    if (arch.isException(scause, arch.ECALL_FROM_U)) {
+        syscall.dispatch(frame);
+        arch.csr.write("sepc", sepc + 4);
+        return;
+    }
 
     panic_lib.panic("trap: scause={x}, stval={x}, sepc={x}, ra={x}, sp={x}", .{
         scause,

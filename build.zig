@@ -90,6 +90,16 @@ pub fn build(b: *std.Build) void {
     proc_scheduler_module.addImport("process", proc_process_module);
     proc_scheduler_module.addImport("allocator", mm_allocator_module);
 
+    const syscall_module = b.createModule(.{
+        .root_source_file = b.path("src/syscall/syscall.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    syscall_module.addImport("arch", arch_module);
+    syscall_module.addImport("sbi", drivers_sbi_module);
+    syscall_module.addImport("process", proc_process_module);
+    syscall_module.addImport("scheduler", proc_scheduler_module);
+
     const kernel_main_module = b.createModule(.{
         .root_source_file = b.path("src/kernel/main.zig"),
         .target = target,
@@ -102,6 +112,7 @@ pub fn build(b: *std.Build) void {
     kernel_main_module.addImport("layout", mm_layout_module);
     kernel_main_module.addImport("process", proc_process_module);
     kernel_main_module.addImport("scheduler", proc_scheduler_module);
+    kernel_main_module.addImport("syscall", syscall_module);
 
     const exe = b.addExecutable(.{
         .name = "kernel.elf",
@@ -112,13 +123,16 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
+    const user_module = b.createModule(.{
+        .root_source_file = b.path("src/user/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    user_module.addImport("syscall", syscall_module);
+
     const user = b.addExecutable(.{
         .name = "user.elf",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/user/main.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
+        .root_module = user_module,
     });
     user.entry = .disabled;
     user.setLinkerScript(b.path("src/linker/user.ld"));
