@@ -40,15 +40,18 @@ pub fn printf(comptime fmt: []const u8, args: anytype) void {
 fn printHex(value: anytype) void {
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
-        .int => {
-            const val: u32 = @intCast(value);
+        .int => |int_info| {
+            const bit_width = int_info.bits;
+            const val: u64 = @intCast(value);
             sbi.putChar('0');
             sbi.putChar('x');
 
             const hex_chars = "0123456789abcdef";
             var printed_digit = false;
 
-            var i: i8 = 28;
+            // Round up bit_width to nearest multiple of 4, then walk nibbles.
+            const top_shift: i8 = @intCast(@as(i16, bit_width) - 4 + (4 - @as(i16, bit_width % 4)) % 4);
+            var i: i8 = top_shift;
             while (i >= 0) : (i -= 4) {
                 const nibble = @as(u8, @intCast((val >> @intCast(i)) & 0xF));
                 if (nibble != 0 or printed_digit or i == 0) {
@@ -86,7 +89,7 @@ fn printValue(value: anytype) void {
             }
 
             while (val > 0) {
-                buf[pos] = @as(u8, @intCast(val % 10)) + '0';
+                buf[pos] = @as(u8, @intCast(@rem(val, 10))) + '0';
                 val = @divTrunc(val, 10);
                 pos += 1;
             }

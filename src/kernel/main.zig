@@ -1,14 +1,21 @@
-const std = @import("std");
+//! Kernel entry point — initializes subsystems and starts the scheduler.
+
 const arch = @import("arch");
-const fmt = @import("fmt");
+const console = @import("console");
 const panic_lib = @import("panic");
 const allocator = @import("allocator");
 const layout = @import("layout");
 const process = @import("process");
-const scheduler = @import("scheduler");
-const syscall = @import("syscall");
+const virtio = @import("virtio");
+
+// Pull in trap/yield/user_entry exports so they are linked into the kernel.
+comptime {
+    _ = @import("trap");
+}
 
 const user_bin = @embedFile("user.bin");
+
+var virtio_blk_state: virtio.VirtioBlk = undefined;
 
 extern const __bss: [*]u8;
 extern const __bss_end: [*]u8;
@@ -19,62 +26,37 @@ export fn kernel_main() noreturn {
     const bss_len = @intFromPtr(__bss_end) - @intFromPtr(__bss);
     @memset(__bss[0..bss_len], 0);
 
-    fmt.printf("\n[rk] booting kernel...\n", .{});
+    console.printf("\n[rk] BOOTING kernel...\n", .{});
 
-    fmt.printf("[rk] setting trap vector...\n", .{});
+    console.printf("[rk] setting trap vector...\n", .{});
     arch.csr.write("stvec", @intFromPtr(&arch.kernelEntry));
 
-    fmt.printf("[rk] initializing allocator...\n", .{});
+    console.printf("[rk] initializing allocator...\n", .{});
     const free_ram = @extern([*]u8, .{ .name = "__free_ram" });
     const free_ram_end = @extern([*]u8, .{ .name = "__free_ram_end" });
-    fmt.printf("[rk] __free_ram={x}, __free_ram_end={x}\n", .{ @intFromPtr(free_ram), @intFromPtr(free_ram_end) });
+    console.printf("[rk] __free_ram={x}, __free_ram_end={x}\n", .{ @intFromPtr(free_ram), @intFromPtr(free_ram_end) });
     allocator.init(@intFromPtr(free_ram));
 
-    fmt.printf("[rk] initializing scheduler...\n", .{});
-    scheduler.Scheduler.init() catch |err| {
+    console.printf("[rk] initializing virtio-blk...\n", .{});
+    virtio_blk_state = virtio.VirtioBlk.init() catch |err| {
+        panic_lib.panic("VirtIO init failed: {}", .{err});
+    };
+
+    console.printf("[rk] initializing scheduler...\n", .{});
+    process.initScheduler() catch |err| {
         panic_lib.panic("Failed to initialize scheduler: {}", .{err});
     };
 
+    console.printf("[rk] creating user processes...\n", .{});
     _ = process.Process.create(layout.USER_BASE, user_bin) catch |err| {
-        panic_lib.panic("Failed to create user process: {}", .{err});
+        panic_lib.panic("Failed to create user process 1: {}", .{err});
+    };
+    _ = process.Process.create(layout.USER_BASE, user_bin) catch |err| {
+        panic_lib.panic("Failed to create user process 2: {}", .{err});
     };
 
-    scheduler.Scheduler.yield();
+    console.printf("[rk] starting scheduler...\n", .{});
+    process.yield();
 
     panic_lib.panic("unexpected return from yield", .{});
-}
-
-export fn user_entry() callconv(.naked) void {
-    asm volatile (
-        \\csrw sepc, %[sepc]
-        \\csrw sstatus, %[sstatus]
-        \\sret
-        :
-        : [sepc] "r" (layout.USER_BASE),
-          [sstatus] "r" (arch.SSTATUS_SPIE),
-    );
-}
-
-export fn yield() void {
-    scheduler.Scheduler.yield();
-}
-
-export fn handleTrap(frame: *arch.TrapFrame) callconv(.c) void {
-    const scause = arch.csr.read("scause");
-    const stval = arch.csr.read("stval");
-    const sepc = arch.csr.read("sepc");
-
-    if (arch.isException(scause, arch.ECALL_FROM_U)) {
-        syscall.dispatch(frame);
-        arch.csr.write("sepc", sepc + 4);
-        return;
-    }
-
-    panic_lib.panic("trap: scause={x}, stval={x}, sepc={x}, ra={x}, sp={x}", .{
-        scause,
-        stval,
-        sepc,
-        frame.ra,
-        frame.sp,
-    });
 }

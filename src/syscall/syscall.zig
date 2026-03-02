@@ -7,6 +7,7 @@ pub const SysCall = enum(u32) {
     read = 2,
     exit = 3,
     yield = 4,
+    getpid = 5,
     _,
 };
 
@@ -25,6 +26,9 @@ pub fn dispatch(frame: *arch.TrapFrame) void {
         },
         .yield => {
             proc.yield();
+        },
+        .getpid => {
+            frame.a0 = proc.getpid();
         },
         else => {
             frame.a0 = @bitCast(@as(i32, -1));

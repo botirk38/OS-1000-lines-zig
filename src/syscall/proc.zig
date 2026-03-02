@@ -1,17 +1,24 @@
 const process = @import("process");
-const scheduler = @import("scheduler");
+const console = @import("console");
 
 pub fn exit(code: i32) noreturn {
-    _ = code;
-
-    if (scheduler.current_proc) |p| {
-        p.state = process.ProcessState.zombie;
+    if (process.current_proc) |p| {
+        p.exit_code = code;
+        p.state = .zombie;
+        console.printf("[kernel] process {} exited with code {}\n", .{ p.pid, code });
     }
-
-    scheduler.Scheduler.yield();
-    @panic("sys_exit returned unexpectedly");
+    // Yield in a loop: yield() may return if no other process is runnable,
+    // but we must never execute user code again after exit.
+    while (true) {
+        process.yield();
+    }
 }
 
 pub fn yield() void {
-    scheduler.Scheduler.yield();
+    process.yield();
+}
+
+pub fn getpid() u32 {
+    if (process.current_proc) |p| return @intCast(p.pid);
+    return 0;
 }

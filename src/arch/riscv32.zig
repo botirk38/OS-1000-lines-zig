@@ -23,6 +23,7 @@ pub const csr = struct {
 /// RISC-V specific constants
 pub const SATP_SV32: u32 = 1 << 31;
 pub const SSTATUS_SPIE: u32 = 1 << 5;
+pub const SSTATUS_SUM: u32 = 1 << 18; // Supervisor User Memory access
 pub const ECALL_FROM_U = 8;
 pub const ECALL_FROM_S = 9;
 
@@ -95,10 +96,19 @@ pub const TrapFrame = packed struct {
     sp: u32,
 };
 
-/// Context switching implementation
-pub fn switchContext(prev_sp: *u32, next_sp: *u32) void {
+/// Context switch between two kernel stacks.
+/// prev_sp (a0): pointer to the outgoing process's saved sp field.
+/// next_sp (a1): pointer to the incoming process's saved sp field.
+/// Saves ra + s0-s11 (13 callee-saved words) on the current stack,
+/// stores sp into *prev_sp, loads sp from *next_sp, then restores.
+/// callconv(.naked) — no compiler prologue/epilogue; a0/a1 are live on entry
+/// per the C ABI and are never touched by the compiler before the asm body.
+/// Call via: @as(*const fn(*u32,*u32) callconv(.c) void, @ptrCast(&switchContext))(p, n)
+pub fn switchContext(prev_sp: *u32, next_sp: *u32) callconv(.naked) void {
+    _ = prev_sp;
+    _ = next_sp;
     asm volatile (
-        \\addi sp, sp, -4 * 14
+        \\addi sp, sp, -4 * 13
         \\sw ra,  4 * 0(sp)
         \\sw s0,  4 * 1(sp)
         \\sw s1,  4 * 2(sp)
@@ -112,12 +122,8 @@ pub fn switchContext(prev_sp: *u32, next_sp: *u32) void {
         \\sw s9,  4 * 10(sp)
         \\sw s10, 4 * 11(sp)
         \\sw s11, 4 * 12(sp)
-        \\csrr t0, sepc
-        \\sw t0,  4 * 13(sp)
-        \\sw sp, 0(%[prev_sp])
-        \\lw sp, 0(%[next_sp])
-        \\lw t0,  4 * 13(sp)
-        \\csrw sepc, t0
+        \\sw sp, 0(a0)
+        \\lw sp, 0(a1)
         \\lw ra,  4 * 0(sp)
         \\lw s0,  4 * 1(sp)
         \\lw s1,  4 * 2(sp)
@@ -131,19 +137,23 @@ pub fn switchContext(prev_sp: *u32, next_sp: *u32) void {
         \\lw s9,  4 * 10(sp)
         \\lw s10, 4 * 11(sp)
         \\lw s11, 4 * 12(sp)
-        \\addi sp, sp, 4 * 14
-        :
-        : [prev_sp] "r" (prev_sp),
-          [next_sp] "r" (next_sp),
-        : .{ .memory = true, .x5 = true });
+        \\addi sp, sp, 4 * 13
+        \\ret
+    );
 }
 
-/// Kernel entry point for trap handling
+/// Kernel entry point for trap handling.
+/// On entry sp holds the interrupted context's sp (user or kernel).
+/// sscratch holds the top of the current process's kernel stack.
+/// csrrw atomically swaps them: sp gets the kernel stack, sscratch gets the
+/// interrupted sp. After saving all registers, sscratch is restored to the
+/// kernel stack top so the next trap finds it ready again.
 pub fn kernelEntry() callconv(.naked) void {
     asm volatile (
-        \\csrw sscratch, sp
+    // Swap sp and sscratch: sp <- kernel stack top, sscratch <- user sp
+        \\csrrw sp, sscratch, sp
         \\addi sp, sp, -4 * 31
-        // save registers
+        // Save all general-purpose registers except sp (saved at slot 30)
         \\sw ra,  4 * 0(sp)
         \\sw gp,  4 * 1(sp)
         \\sw tp,  4 * 2(sp)
@@ -174,11 +184,16 @@ pub fn kernelEntry() callconv(.naked) void {
         \\sw s9,  4 * 27(sp)
         \\sw s10, 4 * 28(sp)
         \\sw s11, 4 * 29(sp)
+        // sscratch now holds the interrupted sp; save it at slot 30
         \\csrr a0, sscratch
-        \\sw a0, 4 * 30(sp)
+        \\sw a0,  4 * 30(sp)
+        // Restore sscratch to kernel stack top for the next trap
+        \\addi a0, sp, 4 * 31
+        \\csrw sscratch, a0
+        // Call handleTrap(frame)
         \\mv a0, sp
         \\call handleTrap
-        // restore registers
+        // Restore all registers
         \\lw ra,  4 * 0(sp)
         \\lw gp,  4 * 1(sp)
         \\lw tp,  4 * 2(sp)

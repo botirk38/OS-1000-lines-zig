@@ -1,14 +1,17 @@
-//! Memory management - page table implementation
-//! Provides virtual memory management for RISC-V SV32
-
 const std = @import("std");
-const fmt = @import("fmt");
 const allocator = @import("allocator");
 
 const PAGE_SIZE = allocator.PAGE_SIZE;
-const PageFlags = allocator.PageFlags;
 
-/// Page table entry structure
+/// RISC-V SV32 page-table entry permission bits.
+pub const PageFlags = enum(u32) {
+    valid = 1 << 0,
+    read = 1 << 1,
+    write = 1 << 2,
+    exec = 1 << 3,
+    user = 1 << 4,
+};
+
 pub const PageTableEntry = struct {
     raw: u32,
 
@@ -29,45 +32,26 @@ pub const PageTableEntry = struct {
     }
 };
 
-/// Map a virtual page to a physical page
 pub fn mapPage(table1: [*]u32, vaddr: u32, paddr: u32, flags: u32) void {
-    fmt.printf("[paging] mapPage: vaddr={x}, paddr={x}, flags={x}\n", .{ vaddr, paddr, flags });
-
     if (!isAligned(vaddr, PAGE_SIZE)) @panic("Unaligned virtual address");
     if (!isAligned(paddr, PAGE_SIZE)) @panic("Unaligned physical address");
 
     const vpn1 = (vaddr >> 22) & 0x3FF;
-    fmt.printf("[paging] mapPage: vpn1={x}\n", .{vpn1});
-
     var pte1 = PageTableEntry{ .raw = table1[vpn1] };
-    fmt.printf("[paging] mapPage: pte1.raw={x}, isValid={}\n", .{ pte1.raw, pte1.isValid() });
 
     if (!pte1.isValid()) {
-        fmt.printf("[paging] mapPage: need to allocate second-level page table\n", .{});
         const pt_paddr = allocator.allocPages(1);
-        fmt.printf("[paging] mapPage: allocated second-level at paddr={x}\n", .{pt_paddr});
-
         pte1 = PageTableEntry.fromPhysical(pt_paddr, @intFromEnum(PageFlags.valid));
-        fmt.printf("[paging] mapPage: created pte1 with raw={x}\n", .{pte1.raw});
-
         table1[vpn1] = pte1.raw;
-        fmt.printf("[paging] mapPage: stored pte1 in table1[{}]\n", .{vpn1});
     }
 
     const vpn0 = (vaddr >> 12) & 0x3FF;
-    fmt.printf("[paging] mapPage: vpn0={x}\n", .{vpn0});
-
     const table0: [*]u32 = @ptrFromInt(pte1.getPhysicalAddress());
-    fmt.printf("[paging] mapPage: table0 pointer={x}\n", .{@intFromPtr(table0)});
 
     const pte0 = PageTableEntry.fromPhysical(paddr, flags | @intFromEnum(PageFlags.valid));
-    fmt.printf("[paging] mapPage: created pte0 with raw={x}\n", .{pte0.raw});
-
     table0[vpn0] = pte0.raw;
-    fmt.printf("[paging] mapPage: stored pte0 in table0[{}], mapping complete\n", .{vpn0});
 }
 
-/// Unmap a virtual page
 pub fn unmapPage(table1: [*]u32, vaddr: u32) void {
     if (!isAligned(vaddr, PAGE_SIZE)) @panic("Unaligned virtual address");
 
@@ -81,7 +65,6 @@ pub fn unmapPage(table1: [*]u32, vaddr: u32) void {
     table0[vpn0] = 0;
 }
 
-/// Check if an address is aligned to the given size
 fn isAligned(addr: u32, size: u32) bool {
     return (addr & (size - 1)) == 0;
 }

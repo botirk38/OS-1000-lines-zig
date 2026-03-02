@@ -32,3 +32,7 @@ pub fn exit(code: i32) noreturn {
 pub fn yield() void {
     _ = syscall(syscallNumber(.yield), 0, 0, 0);
 }
+
+pub fn getpid() u32 {
+    return @bitCast(syscall(syscallNumber(.getpid), 0, 0, 0));
+}

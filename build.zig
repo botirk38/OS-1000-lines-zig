@@ -30,13 +30,6 @@ pub fn build(b: *std.Build) void {
     });
     drivers_console_module.addImport("sbi", drivers_sbi_module);
 
-    const lib_fmt_module = b.createModule(.{
-        .root_source_file = b.path("src/lib/fmt.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    lib_fmt_module.addImport("console", drivers_console_module);
-
     const lib_panic_module = b.createModule(.{
         .root_source_file = b.path("src/lib/panic.zig"),
         .target = target,
@@ -56,39 +49,41 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    mm_allocator_module.addImport("fmt", lib_fmt_module);
     mm_allocator_module.addImport("layout", mm_layout_module);
+
+    const lib_math_module = b.createModule(.{
+        .root_source_file = b.path("src/lib/math.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const drivers_virtio_module = b.createModule(.{
+        .root_source_file = b.path("src/drivers/virtio_blk.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    drivers_virtio_module.addImport("console", drivers_console_module);
+    drivers_virtio_module.addImport("allocator", mm_allocator_module);
+    drivers_virtio_module.addImport("layout", mm_layout_module);
+    drivers_virtio_module.addImport("math", lib_math_module);
 
     const mm_paging_module = b.createModule(.{
         .root_source_file = b.path("src/mm/paging.zig"),
         .target = target,
         .optimize = optimize,
     });
-    mm_paging_module.addImport("fmt", lib_fmt_module);
     mm_paging_module.addImport("allocator", mm_allocator_module);
-
-    const proc_scheduler_module = b.createModule(.{
-        .root_source_file = b.path("src/proc/scheduler.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
 
     const proc_process_module = b.createModule(.{
         .root_source_file = b.path("src/proc/process.zig"),
         .target = target,
         .optimize = optimize,
     });
-    proc_process_module.addImport("fmt", lib_fmt_module);
     proc_process_module.addImport("allocator", mm_allocator_module);
     proc_process_module.addImport("paging", mm_paging_module);
     proc_process_module.addImport("layout", mm_layout_module);
     proc_process_module.addImport("arch", arch_module);
-    proc_process_module.addImport("scheduler", proc_scheduler_module);
-
-    proc_scheduler_module.addImport("fmt", lib_fmt_module);
-    proc_scheduler_module.addImport("arch", arch_module);
-    proc_scheduler_module.addImport("process", proc_process_module);
-    proc_scheduler_module.addImport("allocator", mm_allocator_module);
+    proc_process_module.addImport("virtio", drivers_virtio_module);
 
     const syscall_module = b.createModule(.{
         .root_source_file = b.path("src/syscall/syscall.zig"),
@@ -97,8 +92,18 @@ pub fn build(b: *std.Build) void {
     });
     syscall_module.addImport("arch", arch_module);
     syscall_module.addImport("sbi", drivers_sbi_module);
+    syscall_module.addImport("console", drivers_console_module);
     syscall_module.addImport("process", proc_process_module);
-    syscall_module.addImport("scheduler", proc_scheduler_module);
+
+    const kernel_trap_module = b.createModule(.{
+        .root_source_file = b.path("src/kernel/trap.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    kernel_trap_module.addImport("arch", arch_module);
+    kernel_trap_module.addImport("panic", lib_panic_module);
+    kernel_trap_module.addImport("layout", mm_layout_module);
+    kernel_trap_module.addImport("syscall", syscall_module);
 
     const kernel_main_module = b.createModule(.{
         .root_source_file = b.path("src/kernel/main.zig"),
@@ -106,13 +111,13 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     kernel_main_module.addImport("arch", arch_module);
-    kernel_main_module.addImport("fmt", lib_fmt_module);
+    kernel_main_module.addImport("console", drivers_console_module);
     kernel_main_module.addImport("panic", lib_panic_module);
     kernel_main_module.addImport("allocator", mm_allocator_module);
     kernel_main_module.addImport("layout", mm_layout_module);
     kernel_main_module.addImport("process", proc_process_module);
-    kernel_main_module.addImport("scheduler", proc_scheduler_module);
-    kernel_main_module.addImport("syscall", syscall_module);
+    kernel_main_module.addImport("virtio", drivers_virtio_module);
+    kernel_main_module.addImport("trap", kernel_trap_module);
 
     const exe = b.addExecutable(.{
         .name = "kernel.elf",
@@ -160,6 +165,11 @@ pub fn build(b: *std.Build) void {
     run_cmd.addArgs(&.{ "-machine", "virt", "-bios", "default", "-nographic", "-serial", "mon:stdio", "--no-reboot", "-kernel" });
 
     run_cmd.addArtifactArg(exe);
+
+    run_cmd.addArgs(&.{
+        "-drive",  "id=drive0,file=disk.img,format=raw,if=none",
+        "-device", "virtio-blk-device,drive=drive0,bus=virtio-mmio-bus.0",
+    });
 
     const run_step = b.step("run", "Run QEMU");
     run_step.dependOn(&run_cmd.step);
