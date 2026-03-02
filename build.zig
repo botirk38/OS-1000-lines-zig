@@ -73,6 +73,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     mm_paging_module.addImport("allocator", mm_allocator_module);
+    mm_paging_module.addImport("arch", arch_module);
 
     const proc_process_module = b.createModule(.{
         .root_source_file = b.path("src/proc/process.zig"),

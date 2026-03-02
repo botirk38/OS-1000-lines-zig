@@ -27,6 +27,26 @@ pub const SSTATUS_SUM: u32 = 1 << 18; // Supervisor User Memory access
 pub const ECALL_FROM_U = 8;
 pub const ECALL_FROM_S = 9;
 
+/// SV32 two-level page-table constants (RISC-V Privileged spec §4.3).
+pub const sv32 = struct {
+    /// Each VPN field is 10 bits wide.
+    pub const VPN_BITS: u5 = 10;
+    /// Mask for a single 10-bit VPN (or the 10-bit PTE flags field).
+    pub const VPN_MASK: u32 = (1 << VPN_BITS) - 1; // 0x3FF
+    /// VPN[1]: bits [31:22] of a virtual address.
+    pub const VPN1_SHIFT: u5 = 22;
+    /// VPN[0]: bits [21:12] of a virtual address.
+    pub const VPN0_SHIFT: u5 = 12;
+    /// PPN starts at bit 10 inside a page-table entry.
+    pub const PTE_PPN_SHIFT: u5 = 10;
+    /// The PPN field of a PTE is 22 bits wide (SV32 has a 34-bit physical space).
+    pub const PTE_PPN_BITS: u5 = 22;
+    /// Mask for the full 22-bit PPN stored in a PTE.
+    pub const PTE_PPN_MASK: u32 = (1 << PTE_PPN_BITS) - 1; // 0x3FFFFF
+    /// Mask for the 10-bit flags/RSW field at the bottom of a PTE.
+    pub const PTE_FLAGS_MASK: u32 = VPN_MASK; // 0x3FF
+};
+
 pub const SCAUSE_INTERRUPT_BIT: u32 = 1 << 31;
 pub const SCAUSE_CODE_MASK: u32 = 0x7fff_ffff;
 // Exception codes (when interrupt bit is 0)
