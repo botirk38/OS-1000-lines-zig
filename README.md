@@ -2,6 +2,10 @@
 
 A minimal operating system for RISC-V 32-bit, written in Zig.
 
+## Demo
+
+https://youtu.be/9htanzAm9qw
+
 ## What is this?
 
 pico-os is a small educational OS inspired by "Operating System in 1,000 Lines". It demonstrates the basics of OS development: booting, memory management, process scheduling, and user-mode syscalls.
