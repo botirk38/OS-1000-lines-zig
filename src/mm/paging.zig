@@ -1,6 +1,7 @@
 const std = @import("std");
 const allocator = @import("allocator");
 const arch = @import("arch");
+const log = @import("logger");
 
 const PAGE_SIZE = allocator.PAGE_SIZE;
 const sv32 = arch.sv32;
@@ -52,6 +53,8 @@ pub fn mapPage(table1: [*]u32, vaddr: u32, paddr: u32, flags: u32) void {
 
     const pte0 = PageTableEntry.fromPhysical(paddr, flags | @intFromEnum(PageFlags.valid));
     table0[vpn0] = pte0.raw;
+
+    log.debug("mm", "mapPage vaddr={x} -> paddr={x}", .{ vaddr, paddr });
 }
 
 pub fn unmapPage(table1: [*]u32, vaddr: u32) void {

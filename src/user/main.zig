@@ -1,48 +1,50 @@
+const std = @import("std");
 const sys = @import("lib/syscall.zig");
+const io = @import("lib/io.zig");
 
 export fn start() linksection(".text.start") callconv(.naked) void {
     asm volatile (
-        \\la sp, __stack_top
-        \\call main
+        \\mv sp, %[stack_top]
+        \\j main
+        :
+        : [stack_top] "r" (@extern([*]u8, .{ .name = "__stack_top" })),
     );
 }
 
-fn putchar(c: u8) void {
-    _ = sys.write(1, @as([*]const u8, @ptrCast(&c)), 1);
-}
-
-fn putstr(s: []const u8) void {
-    _ = sys.write(1, s.ptr, @intCast(s.len));
-}
-
-fn putdec(val: u32) void {
-    if (val == 0) {
-        putchar('0');
-        return;
-    }
-    var buf: [10]u8 = undefined;
-    var pos: usize = 0;
-    var v = val;
-    while (v > 0) : (v /= 10) {
-        buf[pos] = @as(u8, @intCast(v % 10)) + '0';
-        pos += 1;
-    }
-    while (pos > 0) {
-        pos -= 1;
-        putchar(buf[pos]);
-    }
-}
-
 export fn main() noreturn {
-    const pid = sys.getpid();
-    var tick: u32 = 0;
+    io.putstr("user: main() started\n");
+
     while (true) {
-        tick +%= 1;
-        putstr("[user] pid=");
-        putdec(pid);
-        putstr(" tick=");
-        putdec(tick);
-        putchar('\n');
-        sys.yield();
+        io.putstr("> ");
+
+        var cmdline: [128]u8 = undefined;
+        const cmd = io.readline(&cmdline) orelse {
+            continue;
+        };
+
+        if (std.mem.eql(u8, cmd, "hello")) {
+            io.putstr("Hello world from shell!\n");
+        } else if (std.mem.eql(u8, cmd, "exit")) {
+            sys.exit(0);
+        } else if (std.mem.eql(u8, cmd, "readfile")) {
+            var buf: [128]u8 = undefined;
+            const len = sys.readfile("hello.txt", &buf, buf.len);
+            if (len < 0) {
+                io.putstr("readfile: file not found\n");
+            } else {
+                io.putstr(buf[0..@intCast(len)]);
+                io.putchar('\n');
+            }
+        } else if (std.mem.eql(u8, cmd, "writefile")) {
+            const content = "Hello from shell!\n";
+            const len = sys.writefile("hello.txt", content.ptr, content.len);
+            if (len < 0) {
+                io.putstr("writefile: error\n");
+            }
+        } else if (cmd.len > 0) {
+            io.putstr("unknown command: ");
+            io.putstr(cmd);
+            io.putchar('\n');
+        }
     }
 }

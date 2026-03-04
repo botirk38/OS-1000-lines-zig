@@ -1,6 +1,8 @@
 const arch = @import("arch");
+const log = @import("logger");
 const io = @import("io.zig");
 const proc = @import("proc.zig");
+const fs = @import("fs");
 
 pub const SysCall = enum(u32) {
     write = 1,
@@ -8,11 +10,15 @@ pub const SysCall = enum(u32) {
     exit = 3,
     yield = 4,
     getpid = 5,
+    readfile = 6,
+    writefile = 7,
     _,
 };
 
 pub fn dispatch(frame: *arch.TrapFrame) void {
     const syscall_enum: SysCall = @enumFromInt(frame.a7);
+
+    log.debug("syscall", "syscall={} a0={x} a1={x} a2={x}", .{ frame.a7, frame.a0, frame.a1, frame.a2 });
 
     switch (syscall_enum) {
         .write => {
@@ -29,6 +35,41 @@ pub fn dispatch(frame: *arch.TrapFrame) void {
         },
         .getpid => {
             frame.a0 = proc.getpid();
+        },
+        .readfile => {
+            const filename: [*:0]const u8 = @ptrFromInt(frame.a0);
+            const buf: [*]u8 = @ptrFromInt(frame.a1);
+            const len: usize = @truncate(frame.a2);
+
+            const file = fs.lookup(filename);
+            if (file == null) {
+                frame.a0 = @bitCast(@as(i32, -1));
+                return;
+            }
+
+            const file_size = file.?.size;
+            const copy_len = if (len < file_size) len else file_size;
+            @memcpy(buf[0..copy_len], file.?.data[0..copy_len]);
+            frame.a0 = @bitCast(@as(i32, @intCast(copy_len)));
+        },
+        .writefile => {
+            const filename: [*:0]const u8 = @ptrFromInt(frame.a0);
+            const buf: [*]const u8 = @ptrFromInt(frame.a1);
+            const len: usize = @truncate(frame.a2);
+
+            const file = fs.lookup(filename) orelse fs.create(filename);
+            if (file == null) {
+                frame.a0 = @bitCast(@as(i32, -1));
+                return;
+            }
+
+            const copy_len = if (len < file.?.data.len) len else file.?.data.len;
+            @memcpy(file.?.data[0..copy_len], buf[0..copy_len]);
+            file.?.size = copy_len;
+
+            fs.flush();
+
+            frame.a0 = @bitCast(@as(i32, @intCast(copy_len)));
         },
         else => {
             frame.a0 = @bitCast(@as(i32, -1));

@@ -1,11 +1,11 @@
 const process = @import("process");
-const console = @import("console");
+const log = @import("logger");
 
 pub fn exit(code: i32) noreturn {
     if (process.current_proc) |p| {
-        p.exit_code = code;
-        p.state = .zombie;
-        console.printf("[kernel] process {} exited with code {}\n", .{ p.pid, code });
+        // Mark process as exited and yield to scheduler
+        p.state = .exited;
+        log.info("proc", "process {} exited with code {}", .{ p.pid, code });
     }
     // Yield in a loop: yield() may return if no other process is runnable,
     // but we must never execute user code again after exit.

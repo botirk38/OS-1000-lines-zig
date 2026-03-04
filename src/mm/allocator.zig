@@ -1,5 +1,6 @@
 const std = @import("std");
 const layout = @import("layout");
+const log = @import("logger");
 
 pub const PAGE_SIZE: u32 = layout.PAGE_SIZE;
 
@@ -27,6 +28,8 @@ pub fn allocPages(n: u32) u32 {
 
     const ptr: [*]u8 = @ptrFromInt(paddr);
     @memset(ptr[0..size], 0);
+
+    log.debug("mm", "allocPages n={} paddr={x}", .{ n, paddr });
 
     return paddr;
 }

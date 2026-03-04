@@ -116,51 +116,49 @@ pub const TrapFrame = packed struct {
     sp: u32,
 };
 
-/// Context switch between two kernel stacks.
-/// prev_sp (a0): pointer to the outgoing process's saved sp field.
-/// next_sp (a1): pointer to the incoming process's saved sp field.
-/// Saves ra + s0-s11 (13 callee-saved words) on the current stack,
-/// stores sp into *prev_sp, loads sp from *next_sp, then restores.
-/// callconv(.naked) — no compiler prologue/epilogue; a0/a1 are live on entry
-/// per the C ABI and are never touched by the compiler before the asm body.
-/// Call via: @as(*const fn(*u32,*u32) callconv(.c) void, @ptrCast(&switchContext))(p, n)
-pub fn switchContext(prev_sp: *u32, next_sp: *u32) callconv(.naked) void {
-    _ = prev_sp;
-    _ = next_sp;
-    asm volatile (
-        \\addi sp, sp, -4 * 13
-        \\sw ra,  4 * 0(sp)
-        \\sw s0,  4 * 1(sp)
-        \\sw s1,  4 * 2(sp)
-        \\sw s2,  4 * 3(sp)
-        \\sw s3,  4 * 4(sp)
-        \\sw s4,  4 * 5(sp)
-        \\sw s5,  4 * 6(sp)
-        \\sw s6,  4 * 7(sp)
-        \\sw s7,  4 * 8(sp)
-        \\sw s8,  4 * 9(sp)
-        \\sw s9,  4 * 10(sp)
-        \\sw s10, 4 * 11(sp)
-        \\sw s11, 4 * 12(sp)
-        \\sw sp, 0(a0)
-        \\lw sp, 0(a1)
-        \\lw ra,  4 * 0(sp)
-        \\lw s0,  4 * 1(sp)
-        \\lw s1,  4 * 2(sp)
-        \\lw s2,  4 * 3(sp)
-        \\lw s3,  4 * 4(sp)
-        \\lw s4,  4 * 5(sp)
-        \\lw s5,  4 * 6(sp)
-        \\lw s6,  4 * 7(sp)
-        \\lw s7,  4 * 8(sp)
-        \\lw s8,  4 * 9(sp)
-        \\lw s9,  4 * 10(sp)
-        \\lw s10, 4 * 11(sp)
-        \\lw s11, 4 * 12(sp)
-        \\addi sp, sp, 4 * 13
-        \\ret
+// switch_context(prev_sp: *u32, next_sp: *u32) — global assembly, no compiler interference.
+// a0 = prev_sp, a1 = next_sp, exactly as the C reference.
+comptime {
+    asm (
+        \\.global switch_context
+        \\.type switch_context, @function
+        \\switch_context:
+        \\  addi sp, sp, -13 * 4
+        \\  sw ra,  0  * 4(sp)
+        \\  sw s0,  1  * 4(sp)
+        \\  sw s1,  2  * 4(sp)
+        \\  sw s2,  3  * 4(sp)
+        \\  sw s3,  4  * 4(sp)
+        \\  sw s4,  5  * 4(sp)
+        \\  sw s5,  6  * 4(sp)
+        \\  sw s6,  7  * 4(sp)
+        \\  sw s7,  8  * 4(sp)
+        \\  sw s8,  9  * 4(sp)
+        \\  sw s9,  10 * 4(sp)
+        \\  sw s10, 11 * 4(sp)
+        \\  sw s11, 12 * 4(sp)
+        \\  sw sp, (a0)
+        \\  lw sp, (a1)
+        \\  lw ra,  0  * 4(sp)
+        \\  lw s0,  1  * 4(sp)
+        \\  lw s1,  2  * 4(sp)
+        \\  lw s2,  3  * 4(sp)
+        \\  lw s3,  4  * 4(sp)
+        \\  lw s4,  5  * 4(sp)
+        \\  lw s5,  6  * 4(sp)
+        \\  lw s6,  7  * 4(sp)
+        \\  lw s7,  8  * 4(sp)
+        \\  lw s8,  9  * 4(sp)
+        \\  lw s9,  10 * 4(sp)
+        \\  lw s10, 11 * 4(sp)
+        \\  lw s11, 12 * 4(sp)
+        \\  addi sp, sp, 13 * 4
+        \\  ret
     );
 }
+
+/// Extern declaration so Zig code can call switch_context by address.
+pub extern fn switch_context(prev_sp: *u32, next_sp: *u32) void;
 
 /// Kernel entry point for trap handling.
 /// On entry sp holds the interrupted context's sp (user or kernel).

@@ -1,4 +1,5 @@
 const sbi = @import("sbi");
+const process = @import("process");
 
 pub fn write(fd: u32, buf: u32, len: u32) i32 {
     if (fd != 1 and fd != 2) return -1;
@@ -15,13 +16,15 @@ pub fn read(fd: u32, buf: u32, len: u32) i32 {
     if (fd != 0) return -1;
     if (len == 0) return 0;
 
+    // Block until at least one character is available, yielding between attempts.
+    // Matches C reference SYS_GETCHAR: loops getchar() + yield() until ch >= 0.
     const ptr: [*]u8 = @ptrFromInt(buf);
-    var copied: u32 = 0;
-    while (copied < len) : (copied += 1) {
-        const ch = sbi.getChar();
-        if (ch < 0) break;
-        ptr[copied] = @intCast(ch);
-    }
+    const ch = while (true) {
+        const c = sbi.getChar();
+        if (c >= 0) break c;
+        process.yield();
+    };
 
-    return @intCast(copied);
+    ptr[0] = @intCast(ch);
+    return 1;
 }

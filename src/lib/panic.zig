@@ -13,9 +13,3 @@ pub fn assert(condition: bool, comptime message: []const u8) void {
         panic("assertion failed: {s}", .{message});
     }
 }
-
-pub fn debug(comptime fmt: []const u8, args: anytype) void {
-    if (std.debug.runtime_safety) {
-        console.printf("[DEBUG] " ++ fmt ++ "\n", args);
-    }
-}

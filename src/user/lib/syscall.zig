@@ -36,3 +36,11 @@ pub fn yield() void {
 pub fn getpid() u32 {
     return @bitCast(syscall(syscallNumber(.getpid), 0, 0, 0));
 }
+
+pub fn readfile(filename: [*:0]const u8, buf: [*]u8, len: u32) i32 {
+    return syscall(syscallNumber(.readfile), @intFromPtr(filename), @intFromPtr(buf), len);
+}
+
+pub fn writefile(filename: [*:0]const u8, buf: [*]const u8, len: u32) i32 {
+    return syscall(syscallNumber(.writefile), @intFromPtr(filename), @intFromPtr(buf), len);
+}

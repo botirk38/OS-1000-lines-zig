@@ -1,5 +1,5 @@
 const layout = @import("layout");
-const console = @import("console");
+const log = @import("logger");
 const allocator = @import("allocator");
 const math = @import("math");
 
@@ -71,7 +71,7 @@ const VirtqUsed = extern struct {
     ring: [VIRTQ_ENTRY_NUM]VirtqUsedElem,
 };
 
-const Virtq = struct {
+const Virtq = extern struct {
     descs: [VIRTQ_ENTRY_NUM]VirtqDesc,
     avail: VirtqAvail,
     _pad: [4096 - @sizeOf(VirtqAvail) - @sizeOf([VIRTQ_ENTRY_NUM]VirtqDesc)]u8,
@@ -124,7 +124,7 @@ pub const VirtioBlk = struct {
             .avail = .{ .flags = 0, .index = 0, .ring = undefined },
             ._pad = undefined,
             .used = .{ .flags = 0, .index = 0, .ring = undefined },
-            .queue_index = 0,
+            .queue_index = index,
             .last_used_index = 0,
         };
 
@@ -143,11 +143,15 @@ pub const VirtioBlk = struct {
         asm volatile ("fence" ::: .{ .memory = true });
 
         regWrite32(VIRTIO_REG_QUEUE_NOTIFY, vq.queue_index);
-        // last_used_index is advanced by the caller after the device completes.
+        // Increment last_used_index here (matches C virtq_kick), so that
+        // virtqIsBusy() correctly sees the device as busy until it completes.
+        vq.last_used_index +%= 1;
     }
 
     fn virtqIsBusy(self: *VirtioBlk) bool {
-        return self.request_vq.last_used_index != self.request_vq.used.index;
+        // Must be a volatile read: the device updates used.index asynchronously.
+        const used_index_ptr: *volatile u16 = &self.request_vq.used.index;
+        return self.request_vq.last_used_index != used_index_ptr.*;
     }
 
     fn validateSector(self: *VirtioBlk, sector: usize) VirtIoError!void {
@@ -166,6 +170,8 @@ pub const VirtioBlk = struct {
 
         const data_offset = @offsetOf(VirtioBlkReq, "data");
         const status_offset = @offsetOf(VirtioBlkReq, "status");
+
+        log.debug("virtio", "performIo type={} sector={} req_paddr={x}", .{ @intFromEnum(req_type), req.sector, req_paddr });
 
         vq.descs[0].addr = req_paddr;
         vq.descs[0].len = @sizeOf(u32) * 2 + @sizeOf(u64);
@@ -190,18 +196,36 @@ pub const VirtioBlk = struct {
         vq.descs[2].flags = VIRTQ_DESC_F_WRITE;
         vq.descs[2].next = 0;
 
+        log.debug("virtio", "kick: avail.index={} last_used={} used.index={}", .{
+            vq.avail.index,
+            vq.last_used_index,
+            vq.used.index,
+        });
+
         self.virtqKick(0);
+
+        log.debug("virtio", "waiting: last_used={} used.index={}", .{
+            vq.last_used_index,
+            vq.used.index,
+        });
+
         while (self.virtqIsBusy()) {}
-        self.request_vq.last_used_index +%= 1;
+
+        log.debug("virtio", "done: status={} last_used={} used.index={}", .{
+            req.status,
+            vq.last_used_index,
+            vq.used.index,
+        });
 
         if (req.status != 0) {
+            log.err("virtio", "IO error: status={}", .{req.status});
             return error.IoError;
         }
     }
 
     pub fn init() VirtIoError!VirtioBlk {
         if (regRead32(VIRTIO_REG_MAGIC) != VIRTIO_MAGIC) {
-            console.printf("[virtio] panic: bad magic {x}\n", .{regRead32(VIRTIO_REG_MAGIC)});
+            log.err("virtio", "bad magic {x}", .{regRead32(VIRTIO_REG_MAGIC)});
             return error.BadMagic;
         }
         if (regRead32(VIRTIO_REG_VERSION) != 1) {
@@ -219,7 +243,7 @@ pub const VirtioBlk = struct {
 
         const request_vq = virtqInit(0);
 
-        regFetchAndOr32(VIRTIO_REG_DEVICE_STATUS, VIRTIO_STATUS_DRIVER_OK);
+        regWrite32(VIRTIO_REG_DEVICE_STATUS, VIRTIO_STATUS_DRIVER_OK);
 
         const capacity = regRead64(VIRTIO_REG_DEVICE_CONFIG) * SECTOR_SIZE;
 
@@ -227,7 +251,7 @@ pub const VirtioBlk = struct {
         const req_paddr = allocator.allocPages(req_pages);
         const req: *VirtioBlkReq = @ptrFromInt(req_paddr);
 
-        console.printf("[virtio-blk] capacity: {} bytes\n", .{capacity});
+        log.info("virtio", "capacity: {} bytes", .{capacity});
 
         return .{
             .request_vq = request_vq,
@@ -239,6 +263,7 @@ pub const VirtioBlk = struct {
 
     pub fn readSector(self: *VirtioBlk, buf: [*]u8, sector: usize) VirtIoError!void {
         try self.validateSector(sector);
+        log.debug("virtio", "readSector sector={}", .{sector});
 
         const req = self.req;
         req.sector = sector;
@@ -246,10 +271,12 @@ pub const VirtioBlk = struct {
         try self.performIo(.read);
 
         @memcpy(buf[0..SECTOR_SIZE], self.req.data[0..SECTOR_SIZE]);
+        log.debug("virtio", "readSector sector={} done", .{sector});
     }
 
     pub fn writeSector(self: *VirtioBlk, buf: [*]u8, sector: usize) VirtIoError!void {
         try self.validateSector(sector);
+        log.debug("virtio", "writeSector sector={}", .{sector});
 
         const req = self.req;
         req.sector = sector;
@@ -257,5 +284,6 @@ pub const VirtioBlk = struct {
         @memcpy(self.req.data[0..SECTOR_SIZE], buf[0..SECTOR_SIZE]);
 
         try self.performIo(.write);
+        log.debug("virtio", "writeSector sector={} done", .{sector});
     }
 };

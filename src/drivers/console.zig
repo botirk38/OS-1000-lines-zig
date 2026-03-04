@@ -19,6 +19,13 @@ pub fn printf(comptime fmt: []const u8, args: anytype) void {
                     arg_index += 1;
                 }
                 i += 2;
+            } else if (i + 2 < fmt.len and fmt[i + 1] == 's' and fmt[i + 2] == '}') {
+                if (arg_index < args.len) {
+                    const arg = @field(args, @typeInfo(@TypeOf(args)).@"struct".fields[arg_index].name);
+                    printValue(arg);
+                    arg_index += 1;
+                }
+                i += 3;
             } else if (i + 2 < fmt.len and fmt[i + 1] == 'x' and fmt[i + 2] == '}') {
                 if (arg_index < args.len) {
                     const arg = @field(args, @typeInfo(@TypeOf(args)).@"struct".fields[arg_index].name);
