@@ -199,7 +199,6 @@ jobs:
         cp zig-out/bin/kernel.elf release/
         cp zig-out/bin/user.elf release/
         cp README.md release/
-        cp ROADMAP.md release/
         tar -czf os-1000-lines-zig-latest.tar.gz -C release .
 
     - name: Upload release artifacts
