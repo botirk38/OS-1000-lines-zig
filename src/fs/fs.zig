@@ -103,7 +103,7 @@ pub fn init(virtio_blk: *virtio.VirtioBlk) void {
 
 pub fn lookup(filename: [*:0]const u8) ?*File {
     const name_slice = std.mem.span(filename);
-    for (files[0..]) |*file| {
+    for (files[0..FILES_MAX]) |*file| {
         if (!file.in_use) continue;
         const file_name = std.mem.span(@as([*:0]const u8, @ptrCast(&file.name)));
         if (std.mem.eql(u8, file_name, name_slice)) {
@@ -115,7 +115,7 @@ pub fn lookup(filename: [*:0]const u8) ?*File {
 
 pub fn create(filename: [*:0]const u8) ?*File {
     const name_slice = std.mem.span(filename);
-    for (files[0..]) |*file| {
+    for (files[0..FILES_MAX]) |*file| {
         if (!file.in_use) {
             file.in_use = true;
             setName(&file.name, name_slice);
@@ -131,7 +131,7 @@ pub fn flush() void {
     log.debug("fs", "flush", .{});
 
     var off: usize = 0;
-    for (files[0..]) |*file| {
+    for (files[0..FILES_MAX]) |*file| {
         if (!file.in_use) continue;
 
         const header: *TarHeader = @ptrCast(@alignCast(&disk[off]));
@@ -161,8 +161,8 @@ pub fn flush() void {
 
     // Write disk back to VirtIO
     for (0..DISK_SIZE / SECTOR_SIZE) |sector| {
-        blk.writeSector(disk[sector * SECTOR_SIZE ..].ptr, sector) catch {
-            // silently ignore write errors
+        blk.writeSector(disk[sector * SECTOR_SIZE ..].ptr, sector) catch |err| {
+            log.err("fs", "flush writeSector {} failed: {}", .{ sector, err });
         };
     }
 }

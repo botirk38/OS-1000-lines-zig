@@ -1,4 +1,3 @@
-const std = @import("std");
 const allocator = @import("allocator");
 const arch = @import("arch");
 const log = @import("logger");

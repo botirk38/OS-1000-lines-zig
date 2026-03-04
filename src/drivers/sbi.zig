@@ -1,5 +1,3 @@
-const std = @import("std");
-
 pub const SbiCall = struct {
     a0: u32 = 0,
     a1: u32 = 0,
@@ -53,15 +51,15 @@ pub const Extension = enum(u32) {
 };
 
 pub fn putChar(c: u8) void {
-    _ = call(.{ .a0 = c, .fid = 0, .eid = 1 });
+    _ = call(.{ .a0 = c, .fid = 0, .eid = @intFromEnum(Extension.legacy_console_putchar) });
 }
 
 pub fn getChar() i32 {
-    const ret = call(.{ .fid = 0, .eid = 2 });
+    const ret = call(.{ .fid = 0, .eid = @intFromEnum(Extension.legacy_console_getchar) });
     return @bitCast(ret.err);
 }
 
 pub fn shutdown() noreturn {
-    _ = call(.{ .fid = 0, .eid = 8 });
+    _ = call(.{ .fid = 0, .eid = @intFromEnum(Extension.legacy_shutdown) });
     unreachable;
 }

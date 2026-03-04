@@ -2,8 +2,6 @@
 //! This module contains all RISC-V specific code including assembly routines,
 //! CSR operations, and trap handling.
 
-const std = @import("std");
-
 /// RISC-V Control and Status Register operations
 pub const csr = struct {
     pub fn read(comptime reg: []const u8) u32 {
@@ -24,8 +22,8 @@ pub const csr = struct {
 pub const SATP_SV32: u32 = 1 << 31;
 pub const SSTATUS_SPIE: u32 = 1 << 5;
 pub const SSTATUS_SUM: u32 = 1 << 18; // Supervisor User Memory access
-pub const ECALL_FROM_U = 8;
-pub const ECALL_FROM_S = 9;
+pub const ECALL_FROM_U: u32 = 8;
+pub const ECALL_FROM_S: u32 = 9;
 
 /// SV32 two-level page-table constants (RISC-V Privileged spec §4.3).
 pub const sv32 = struct {

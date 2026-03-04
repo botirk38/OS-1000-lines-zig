@@ -41,15 +41,13 @@ pub fn dispatch(frame: *arch.TrapFrame) void {
             const buf: [*]u8 = @ptrFromInt(frame.a1);
             const len: usize = @truncate(frame.a2);
 
-            const file = fs.lookup(filename);
-            if (file == null) {
+            const file = fs.lookup(filename) orelse {
                 frame.a0 = @bitCast(@as(i32, -1));
                 return;
-            }
+            };
 
-            const file_size = file.?.size;
-            const copy_len = if (len < file_size) len else file_size;
-            @memcpy(buf[0..copy_len], file.?.data[0..copy_len]);
+            const copy_len = @min(len, file.size);
+            @memcpy(buf[0..copy_len], file.data[0..copy_len]);
             frame.a0 = @bitCast(@as(i32, @intCast(copy_len)));
         },
         .writefile => {
@@ -58,14 +56,14 @@ pub fn dispatch(frame: *arch.TrapFrame) void {
             const len: usize = @truncate(frame.a2);
 
             const file = fs.lookup(filename) orelse fs.create(filename);
-            if (file == null) {
+            const f = file orelse {
                 frame.a0 = @bitCast(@as(i32, -1));
                 return;
-            }
+            };
 
-            const copy_len = if (len < file.?.data.len) len else file.?.data.len;
-            @memcpy(file.?.data[0..copy_len], buf[0..copy_len]);
-            file.?.size = copy_len;
+            const copy_len = @min(len, f.data.len);
+            @memcpy(f.data[0..copy_len], buf[0..copy_len]);
+            f.size = copy_len;
 
             fs.flush();
 

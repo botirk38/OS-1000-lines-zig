@@ -12,27 +12,20 @@ pub fn printf(comptime fmt: []const u8, args: anytype) void {
 
     inline while (i < fmt.len) {
         if (fmt[i] == '{') {
-            if (i + 1 < fmt.len and fmt[i + 1] == '}') {
-                if (arg_index < args.len) {
-                    const arg = @field(args, @typeInfo(@TypeOf(args)).@"struct".fields[arg_index].name);
-                    printValue(arg);
-                    arg_index += 1;
-                }
-                i += 2;
-            } else if (i + 2 < fmt.len and fmt[i + 1] == 's' and fmt[i + 2] == '}') {
-                if (arg_index < args.len) {
-                    const arg = @field(args, @typeInfo(@TypeOf(args)).@"struct".fields[arg_index].name);
-                    printValue(arg);
-                    arg_index += 1;
-                }
-                i += 3;
-            } else if (i + 2 < fmt.len and fmt[i + 1] == 'x' and fmt[i + 2] == '}') {
-                if (arg_index < args.len) {
-                    const arg = @field(args, @typeInfo(@TypeOf(args)).@"struct".fields[arg_index].name);
-                    printHex(arg);
-                    arg_index += 1;
-                }
-                i += 3;
+            const remaining = fmt[i + 1 ..];
+            if (remaining.len == 0) {
+                sbi.putChar(fmt[i]);
+                i += 1;
+                continue;
+            }
+
+            const consumed = if (remaining[0] == '}') 2 else if (remaining.len >= 2 and (remaining[0] == 's' or remaining[0] == 'x') and remaining[1] == '}') 3 else 0;
+
+            if (consumed > 0 and arg_index < args.len) {
+                const arg = @field(args, @typeInfo(@TypeOf(args)).@"struct".fields[arg_index].name);
+                if (remaining[0] == 'x') printHex(arg) else printValue(arg);
+                arg_index += 1;
+                i += consumed;
             } else {
                 sbi.putChar(fmt[i]);
                 i += 1;
