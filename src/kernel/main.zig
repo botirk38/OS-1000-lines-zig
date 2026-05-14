@@ -26,7 +26,7 @@ export fn kernel_main() noreturn {
     const bss_len = @intFromPtr(__bss_end) - @intFromPtr(__bss);
     @memset(__bss[0..bss_len], 0);
 
-    arch.csr.write("stvec", @intFromPtr(&arch.kernelEntry));
+    arch.Trap.initVector();
 
     const free_ram = @extern([*]u8, .{ .name = "__free_ram" });
     allocator.init(@intFromPtr(free_ram));
