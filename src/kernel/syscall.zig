@@ -17,25 +17,25 @@ pub fn dispatch(ctx: *context.Context, frame: *arch.Trap.Frame) void {
 
     switch (syscall_enum) {
         .write => {
-            arch.Syscall.setReturn(frame, @bitCast(syscallWrite(frame)));
+            arch.Syscall.setReturn(frame, @bitCast(write(frame)));
         },
         .read => {
-            arch.Syscall.setReturn(frame, @bitCast(syscallRead(ctx, frame)));
+            arch.Syscall.setReturn(frame, @bitCast(read(ctx, frame)));
         },
         .exit => {
-            syscallExit(ctx, @bitCast(arch.Syscall.arg(frame, 0)));
+            exit(ctx, @bitCast(arch.Syscall.arg(frame, 0)));
         },
         .yield => {
             ctx.yield();
         },
         .getpid => {
-            arch.Syscall.setReturn(frame, syscallGetpid(ctx));
+            arch.Syscall.setReturn(frame, getpid(ctx));
         },
         .readfile => {
-            arch.Syscall.setReturn(frame, @bitCast(syscallReadFile(frame)));
+            arch.Syscall.setReturn(frame, @bitCast(readFile(frame)));
         },
         .writefile => {
-            arch.Syscall.setReturn(frame, @bitCast(syscallWriteFile(frame)));
+            arch.Syscall.setReturn(frame, @bitCast(writeFile(frame)));
         },
         else => {
             arch.Syscall.setReturn(frame, @bitCast(@as(i32, -1)));
@@ -43,7 +43,7 @@ pub fn dispatch(ctx: *context.Context, frame: *arch.Trap.Frame) void {
     }
 }
 
-fn syscallWrite(frame: *arch.Trap.Frame) i32 {
+fn write(frame: *arch.Trap.Frame) i32 {
     const fd = arch.Syscall.arg(frame, 0);
     const buf = arch.Syscall.arg(frame, 1);
     const len = arch.Syscall.arg(frame, 2);
@@ -58,7 +58,7 @@ fn syscallWrite(frame: *arch.Trap.Frame) i32 {
     return @intCast(i);
 }
 
-fn syscallRead(ctx: *context.Context, frame: *arch.Trap.Frame) i32 {
+fn read(ctx: *context.Context, frame: *arch.Trap.Frame) i32 {
     const fd = arch.Syscall.arg(frame, 0);
     const buf = arch.Syscall.arg(frame, 1);
     const len = arch.Syscall.arg(frame, 2);
@@ -77,7 +77,7 @@ fn syscallRead(ctx: *context.Context, frame: *arch.Trap.Frame) i32 {
     return 1;
 }
 
-fn syscallExit(ctx: *context.Context, code: i32) noreturn {
+fn exit(ctx: *context.Context, code: i32) noreturn {
     if (ctx.currentProcess()) |p| {
         p.markExited();
         log.info("proc", "process {} exited with code {}", .{ p.pid, code });
@@ -87,12 +87,12 @@ fn syscallExit(ctx: *context.Context, code: i32) noreturn {
     }
 }
 
-fn syscallGetpid(ctx: *context.Context) u32 {
+fn getpid(ctx: *context.Context) u32 {
     if (ctx.currentProcess()) |p| return @intCast(p.pid);
     return 0;
 }
 
-fn syscallReadFile(frame: *arch.Trap.Frame) i32 {
+fn readFile(frame: *arch.Trap.Frame) i32 {
     const filename: [*:0]const u8 = @ptrFromInt(arch.Syscall.arg(frame, 0));
     const buf: [*]u8 = @ptrFromInt(arch.Syscall.arg(frame, 1));
     const len: usize = @truncate(arch.Syscall.arg(frame, 2));
@@ -103,7 +103,7 @@ fn syscallReadFile(frame: *arch.Trap.Frame) i32 {
     return @intCast(copy_len);
 }
 
-fn syscallWriteFile(frame: *arch.Trap.Frame) i32 {
+fn writeFile(frame: *arch.Trap.Frame) i32 {
     const filename: [*:0]const u8 = @ptrFromInt(arch.Syscall.arg(frame, 0));
     const buf: [*]const u8 = @ptrFromInt(arch.Syscall.arg(frame, 1));
     const len: usize = @truncate(arch.Syscall.arg(frame, 2));
