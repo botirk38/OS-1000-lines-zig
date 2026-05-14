@@ -1,7 +1,6 @@
-//! Process management and scheduler.
-//! Owns the global process table, current/idle process pointers,
-//! and all scheduling logic (cooperative round-robin).
-//! Logic mirrors the C reference implementation exactly.
+//! Process management.
+//! Defines the concrete Process type and the process Table.
+//! Scheduling policy lives in the scheduler module.
 
 const allocator = @import("allocator");
 const layout = @import("layout");
@@ -19,34 +18,71 @@ pub const PROCS_MAX = 8;
 const USER_BASE = layout.USER_BASE;
 const STACK_SIZE = layout.STACK_SIZE;
 
-/// Process states: match C reference (PROC_UNUSED, PROC_RUNNABLE, PROC_EXITED)
-pub const ProcessState = enum(u2) {
+pub const State = enum(u2) {
     unused = 0,
     runnable = 1,
     exited = 2,
 };
 
-/// Process structure: matches C struct process exactly
-pub const ProcessError = error{
+pub const Error = error{
     NoFreeSlot,
-};
+} || arch.PagingError || allocator.AllocError;
 
 pub const Process = struct {
     pid: usize,
-    state: ProcessState,
-    sp: u32,
-    stack: [STACK_SIZE / @sizeOf(u32)]u32, // u32 array ensures 4-byte alignment
-    page_table: [*]u32,
+    state: State,
+    sp: arch.Word,
+    stack: [STACK_SIZE / @sizeOf(arch.Word)]arch.Word,
+    page_table: [*]arch.Word,
 
-    /// Allocate and initialize a new process slot. `image` may be empty for an idle process.
-    /// Errors if no free slots remain or if paging/allocator operations fail.
-    pub fn create(image: []const u8) (ProcessError || arch.PagingError || allocator.AllocError)!*Process {
-        // Find first free slot (search from 0, like C)
+    pub fn isRunnable(self: *const Process) bool {
+        return self.state == .runnable and self.pid > 0;
+    }
+
+    pub fn markExited(self: *Process) void {
+        self.state = .exited;
+    }
+
+    pub fn addressSpace(self: *Process) arch.Paging.Root {
+        return arch.Paging.rootFromPtr(self.page_table);
+    }
+
+    pub fn kernelStackTop(self: *Process) arch.Word {
+        return @intCast(@intFromPtr(&self.stack) + STACK_SIZE);
+    }
+};
+
+pub const Table = struct {
+    entries: [PROCS_MAX]Process,
+
+    pub fn init(self: *Table) void {
+        for (0..PROCS_MAX) |i| {
+            self.entries[i] = Process{
+                .pid = 0,
+                .state = .unused,
+                .sp = 0,
+                .stack = undefined,
+                .page_table = undefined,
+            };
+        }
+    }
+
+    pub fn createIdle(self: *Table) Error!*Process {
+        const p = try self.create(&.{});
+        p.pid = 0;
+        return p;
+    }
+
+    pub fn createUser(self: *Table, image: []const u8) Error!*Process {
+        return self.create(image);
+    }
+
+    fn create(self: *Table, image: []const u8) (Error || arch.PagingError || allocator.AllocError)!*Process {
         var slot_index: usize = 0;
         var proc: ?*Process = null;
         while (slot_index < PROCS_MAX) : (slot_index += 1) {
-            if (procs[slot_index].state == .unused) {
-                proc = &procs[slot_index];
+            if (self.entries[slot_index].state == .unused) {
+                proc = &self.entries[slot_index];
                 break;
             }
         }
@@ -57,11 +93,7 @@ pub const Process = struct {
 
         const p = proc.?;
 
-        // Build fake context frame on the kernel stack.
-        // C: uint32_t *sp = (uint32_t *) &proc->stack[sizeof(proc->stack)];
-        // Then: *--sp = 0 (x12 times for s11..s0), *--sp = (uint32_t)user_entry
-        //
-        // We do the same but via the SwitchFrame struct written at the top of the stack.
+        // Build fake context frame on the kernel stack
         const ContextFrame = packed struct {
             ra: u32,
             s0: u32,
@@ -78,7 +110,6 @@ pub const Process = struct {
             s11: u32,
         };
 
-        // Place the frame at the top of the stack
         const frame_size = @sizeOf(ContextFrame);
         const stack_top = @intFromPtr(&p.stack) + STACK_SIZE;
         const frame_addr = stack_top - frame_size;
@@ -100,16 +131,13 @@ pub const Process = struct {
             .s11 = 0,
         };
 
-        const saved_sp: u32 = @intCast(frame_addr);
+        const saved_sp: arch.Word = @intCast(frame_addr);
 
         // Allocate and populate page table
         const pt_paddr = try allocator.allocPages(1);
-        const pt: [*]u32 = @ptrFromInt(pt_paddr);
+        const pt: [*]arch.Word = @ptrFromInt(pt_paddr);
 
-        // Map all kernel pages — identity-map kernel code/data/stack/heap
-        // (matches C reference: __kernel_base .. __free_ram_end).
-        // This is necessary so that the kernel stack, process table, and
-        // allocator pages remain accessible after csrw satp switches page tables.
+        // Map all kernel pages
         const kernel_base: u32 = @intCast(@intFromPtr(&__kernel_base));
         const free_ram_end: u32 = @intCast(@intFromPtr(&__free_ram_end));
 
@@ -134,7 +162,7 @@ pub const Process = struct {
             &.{ .read, .write },
         );
 
-        // Map user image pages (if provided)
+        // Map user image pages
         if (image.len > 0) {
             var off: usize = 0;
             while (off < image.len) : (off += PAGE_SIZE) {
@@ -164,90 +192,3 @@ pub const Process = struct {
         return p;
     }
 };
-
-/// Create idle process (slot 0, pid=0, no user image).
-/// Panics on failure because the kernel cannot function without an idle process.
-pub fn createIdle() *Process {
-    const p = Process.create(&.{}) catch |err| {
-        log.err("proc", "createIdle failed: {}", .{err});
-        @panic("failed to create idle process");
-    };
-    p.pid = 0;
-    return p;
-}
-
-/// Create a user process from a binary image.
-/// Returns null if no slots remain.
-pub fn createUser(image: []const u8) ?*Process {
-    return Process.create(image) catch |err| {
-        log.err("proc", "createUser failed: {}", .{err});
-        return null;
-    };
-}
-
-// ---------------------------------------------------------------------------
-// Global scheduler state
-// ---------------------------------------------------------------------------
-
-var procs: [PROCS_MAX]Process = undefined;
-pub var current_proc: ?*Process = null;
-var idle_proc: ?*Process = null;
-
-/// Initialize the process table (zero all slots).
-pub fn init() void {
-    for (0..PROCS_MAX) |i| {
-        procs[i] = Process{
-            .pid = 0,
-            .state = .unused,
-            .sp = 0,
-            .stack = undefined,
-            .page_table = undefined,
-        };
-    }
-}
-
-/// Yield CPU to the next runnable process using round-robin scheduling.
-pub fn yield() void {
-    if (current_proc == null) return;
-
-    var next = idle_proc;
-    const current_pid = current_proc.?.pid;
-
-    for (0..PROCS_MAX) |i| {
-        const idx = @mod(current_pid + i, PROCS_MAX);
-        const p = &procs[idx];
-
-        if (p.state == .runnable and p.pid > 0) {
-            next = p;
-            break;
-        }
-    }
-
-    if (next == current_proc) {
-        return;
-    }
-
-    const prev = current_proc;
-    current_proc = next;
-
-    const next_sp_val = next.?.sp;
-    const ra_at_sp: u32 = @as(*const u32, @ptrFromInt(next_sp_val)).*;
-    log.info("proc", "yield pid={} -> pid={}", .{ prev.?.pid, next.?.pid });
-    log.debug("proc", "yield next.sp={x} ra_at_sp={x}", .{
-        next_sp_val,
-        ra_at_sp,
-    });
-
-    const root = arch.Paging.rootFromPtr(next.?.page_table);
-    const stack_top = @intFromPtr(&next.?.stack) + STACK_SIZE;
-    arch.Context.activateAddressSpace(root, stack_top);
-
-    log.debug("proc", "switch_context prev.sp ptr={x} next.sp ptr={x}", .{
-        @intFromPtr(&prev.?.sp),
-        @intFromPtr(&next.?.sp),
-    });
-
-    arch.Context.swap(&prev.?.sp, &next.?.sp);
-
-    log.debug("proc", "switch_context returned (back to pid={})", .{current_proc.?.pid});
-}

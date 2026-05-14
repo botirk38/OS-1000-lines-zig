@@ -2,19 +2,18 @@
 //! Exports: handleTrap (called from kernelEntry asm), user_entry.
 
 const arch = @import("arch");
-const panic_lib = @import("panic");
-const syscall = @import("syscall");
+const context = @import("kernel_context");
+const syscall = @import("kernel_syscall");
 const log = @import("logger");
+const panic_lib = @import("panic");
 
 /// Called from user_entry global asm to log before sret.
 export fn user_entry_log() callconv(.c) void {
-    const sepc = arch.Trap.pc();
-    const sstatus = arch.Trap.status();
-    log.debug("trap", "user_entry: about to sret sepc={x} sstatus={x}", .{ sepc, sstatus });
+    const info = arch.Trap.read();
+    log.debug("trap", "user_entry: about to sret sepc={x}", .{info.pc});
 }
 
 // Global assembly for user_entry — no compiler interference with callconv(.naked).
-// Constants: USER_BASE (layout.zig), SSTATUS_SPIE | SSTATUS_SUM (arch.zig).
 comptime {
     asm (
         \\.global user_entry
@@ -36,26 +35,34 @@ pub extern fn user_entry() void;
 
 /// Trap handler called from `kernelEntry` assembly stub.
 export fn handleTrap(frame: *arch.Trap.Frame) callconv(.c) void {
+    const ctx = context.Context.current();
     const trap = arch.Trap.read();
 
     log.debug("trap", "handleTrap kind={s} cause={x} pc={x} stval={x}", .{
-        @tagName(trap.kind),
+        switch (trap.kind) {
+            .exception => |e| @tagName(e),
+            .interrupt => |i| @tagName(i),
+        },
         trap.cause,
         trap.pc,
         trap.value,
     });
 
     switch (trap.kind) {
-        .user_syscall => {
-            syscall.dispatch(frame);
-            arch.Trap.setPc(trap.pc + 4);
-            return;
+        .exception => |exception| switch (exception) {
+            .user_syscall => {
+                syscall.dispatch(ctx, frame);
+                arch.Trap.setPc(trap.pc + 4);
+                return;
+            },
+            else => {},
         },
-        else => {},
+        .interrupt => |interrupt| switch (interrupt) {
+            else => {},
+        },
     }
 
-    panic_lib.panic("trap: kind={s} cause={x}, stval={x}, sepc={x}, ra={x}, sp={x}", .{
-        @tagName(trap.kind),
+    panic_lib.panic("trap: cause={x}, stval={x}, sepc={x}, ra={x}, sp={x}", .{
         trap.cause,
         trap.value,
         trap.pc,

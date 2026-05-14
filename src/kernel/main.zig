@@ -5,7 +5,7 @@ const log = @import("logger");
 const panic_lib = @import("panic");
 const allocator = @import("allocator");
 const layout = @import("layout");
-const process = @import("process");
+const context = @import("kernel_context");
 const virtio = @import("virtio");
 const fs = @import("fs");
 
@@ -17,6 +17,7 @@ comptime {
 const user_bin = @embedFile("user.bin");
 
 var virtio_blk_state: virtio.VirtioBlk = undefined;
+var kernel_context: context.Context = undefined;
 
 extern const __bss: [*]u8;
 extern const __bss_end: [*]u8;
@@ -39,24 +40,26 @@ export fn kernel_main() noreturn {
     fs.init(&virtio_blk_state);
     log.info("kernel", "filesystem initialized", .{});
 
-    // Initialize the process table and scheduler
-    process.init();
-    log.info("kernel", "scheduler initialized", .{});
+    // Initialize root kernel context
+    kernel_context.init();
+    kernel_context.install();
+    log.info("kernel", "kernel context initialized", .{});
 
     // Create idle process (slot 0)
-    const idle = process.createIdle();
-    process.current_proc = idle;
+    kernel_context.createIdle() catch {
+        panic_lib.panic("failed to create idle process", .{});
+    };
     log.info("kernel", "idle process created", .{});
 
     // Create user process
-    _ = process.createUser(user_bin) orelse {
+    kernel_context.createUser(user_bin) catch {
         panic_lib.panic("failed to create user process", .{});
     };
     log.info("kernel", "user process created", .{});
 
     // Yield to the scheduler; if we ever return here, all processes have exited
     log.info("kernel", "starting scheduler", .{});
-    process.yield();
+    kernel_context.yield();
 
     // Should never be reached unless the idle process is scheduled back,
     // which means all user processes have exited. Panic to signal this error.
