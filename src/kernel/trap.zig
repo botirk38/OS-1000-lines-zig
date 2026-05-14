@@ -14,14 +14,16 @@ export fn user_entry_log() callconv(.c) void {
 }
 
 // Global assembly for user_entry — no compiler interference with callconv(.naked).
-// USER_BASE = 0x1000000, SSTATUS_SPIE|SSTATUS_SUM = 0x40020.
+// Constants: USER_BASE (layout.zig), SSTATUS_SPIE | SSTATUS_SUM (arch.zig).
 comptime {
     asm (
         \\.global user_entry
         \\.type user_entry, @function
         \\user_entry:
+        // sepc = USER_BASE (layout.USER_BASE = 0x1000000)
         \\  li t0, 0x1000000
         \\  csrw sepc, t0
+        // sstatus = SSTATUS_SPIE | SSTATUS_SUM (0x20 | 0x40000 = 0x40020)
         \\  li t0, 0x40020
         \\  csrw sstatus, t0
         \\  call user_entry_log

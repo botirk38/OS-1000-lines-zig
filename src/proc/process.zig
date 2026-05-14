@@ -29,6 +29,10 @@ pub const ProcessState = enum(u2) {
 };
 
 /// Process structure: matches C struct process exactly
+pub const ProcessError = error{
+    NoFreeSlot,
+};
+
 pub const Process = struct {
     pid: usize,
     state: ProcessState,
@@ -36,10 +40,9 @@ pub const Process = struct {
     stack: [STACK_SIZE / @sizeOf(u32)]u32, // u32 array ensures 4-byte alignment
     page_table: [*]u32,
 
-    /// Create a new process. Matches C create_process() exactly.
-    /// Always sets ra = user_entry in the fake context frame.
-    /// Panics if no free slots.
-    pub fn create(image: ?[]const u8) *Process {
+    /// Allocate and initialize a new process slot. `image` may be empty for an idle process.
+    /// Errors if no free slots remain or if paging/allocator operations fail.
+    pub fn create(image: []const u8) (ProcessError || paging.PagingError || allocator.AllocError)!*Process {
         // Find first free slot (search from 0, like C)
         var slot_index: usize = 0;
         var proc: ?*Process = null;
@@ -51,7 +54,7 @@ pub const Process = struct {
         }
 
         if (proc == null) {
-            @panic("no free process slots");
+            return error.NoFreeSlot;
         }
 
         const p = proc.?;
@@ -102,7 +105,7 @@ pub const Process = struct {
         const saved_sp: u32 = @intCast(frame_addr);
 
         // Allocate and populate page table
-        const pt_paddr = allocator.allocPages(1);
+        const pt_paddr = try allocator.allocPages(1);
         const pt: [*]u32 = @ptrFromInt(pt_paddr);
 
         // Map all kernel pages — identity-map kernel code/data/stack/heap
@@ -116,13 +119,13 @@ pub const Process = struct {
 
         var paddr: u32 = kernel_base;
         while (paddr < free_ram_end) : (paddr += PAGE_SIZE) {
-            paging.mapPage(pt, paddr, paddr, @intFromEnum(PageFlags.read) |
+            try paging.mapPage(pt, paddr, paddr, @intFromEnum(PageFlags.read) |
                 @intFromEnum(PageFlags.write) |
                 @intFromEnum(PageFlags.exec));
         }
 
         // Map VirtIO block device MMIO region
-        paging.mapPage(
+        try paging.mapPage(
             pt,
             virtio.VIRTIO_BLK_PADDR,
             virtio.VIRTIO_BLK_PADDR,
@@ -130,16 +133,16 @@ pub const Process = struct {
         );
 
         // Map user image pages (if provided)
-        if (image) |img| {
+        if (image.len > 0) {
             var off: usize = 0;
-            while (off < img.len) : (off += PAGE_SIZE) {
-                const page_paddr = allocator.allocPages(1);
+            while (off < image.len) : (off += PAGE_SIZE) {
+                const page_paddr = try allocator.allocPages(1);
                 const page: [*]u8 = @ptrFromInt(page_paddr);
-                const copy_len = @min(PAGE_SIZE, img.len - off);
-                @memcpy(page[0..copy_len], img[off..][0..copy_len]);
+                const copy_len = @min(PAGE_SIZE, image.len - off);
+                @memcpy(page[0..copy_len], image[off..][0..copy_len]);
 
                 const vaddr = USER_BASE + @as(u32, @intCast(off));
-                paging.mapPage(
+                try paging.mapPage(
                     pt,
                     vaddr,
                     page_paddr,
@@ -163,13 +166,33 @@ pub const Process = struct {
     }
 };
 
+/// Create idle process (slot 0, pid=0, no user image).
+/// Panics on failure because the kernel cannot function without an idle process.
+pub fn createIdle() *Process {
+    const p = Process.create(&.{}) catch |err| {
+        log.err("proc", "createIdle failed: {}", .{err});
+        @panic("failed to create idle process");
+    };
+    p.pid = 0;
+    return p;
+}
+
+/// Create a user process from a binary image.
+/// Returns null if no slots remain.
+pub fn createUser(image: []const u8) ?*Process {
+    return Process.create(image) catch |err| {
+        log.err("proc", "createUser failed: {}", .{err});
+        return null;
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Global scheduler state
 // ---------------------------------------------------------------------------
 
-pub var procs: [PROCS_MAX]Process = undefined;
+var procs: [PROCS_MAX]Process = undefined;
 pub var current_proc: ?*Process = null;
-pub var idle_proc: ?*Process = null;
+var idle_proc: ?*Process = null;
 
 /// Initialize the process table (zero all slots).
 pub fn init() void {

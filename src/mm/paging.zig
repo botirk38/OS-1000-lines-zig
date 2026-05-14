@@ -14,35 +14,40 @@ pub const PageFlags = enum(u32) {
     user = 1 << 4,
 };
 
-pub const PageTableEntry = struct {
+pub const PagingError = error{
+    UnalignedAddress,
+    NotMapped,
+};
+
+const PageTableEntry = struct {
     raw: u32,
 
-    pub fn fromPhysical(paddr: u32, flags: u32) PageTableEntry {
+    fn fromPhysical(paddr: u32, flags: u32) PageTableEntry {
         return .{ .raw = ((paddr / PAGE_SIZE) << sv32.PTE_PPN_SHIFT) | (flags & sv32.PTE_FLAGS_MASK) };
     }
 
-    pub fn isValid(self: PageTableEntry) bool {
+    fn isValid(self: PageTableEntry) bool {
         return (self.raw & @intFromEnum(PageFlags.valid)) != 0;
     }
 
-    pub fn getPhysicalAddress(self: PageTableEntry) u32 {
+    fn getPhysicalAddress(self: PageTableEntry) u32 {
         return ((self.raw >> sv32.PTE_PPN_SHIFT) & sv32.PTE_PPN_MASK) * PAGE_SIZE;
     }
 
-    pub fn getFlags(self: PageTableEntry) u32 {
+    fn getFlags(self: PageTableEntry) u32 {
         return self.raw & sv32.PTE_FLAGS_MASK;
     }
 };
 
-pub fn mapPage(table1: [*]u32, vaddr: u32, paddr: u32, flags: u32) void {
-    if (!isAligned(vaddr, PAGE_SIZE)) @panic("Unaligned virtual address");
-    if (!isAligned(paddr, PAGE_SIZE)) @panic("Unaligned physical address");
+pub fn mapPage(table1: [*]u32, vaddr: u32, paddr: u32, flags: u32) (PagingError || allocator.AllocError)!void {
+    if (!isAligned(vaddr, PAGE_SIZE)) return error.UnalignedAddress;
+    if (!isAligned(paddr, PAGE_SIZE)) return error.UnalignedAddress;
 
     const vpn1 = (vaddr >> sv32.VPN1_SHIFT) & sv32.VPN_MASK;
     var pte1 = PageTableEntry{ .raw = table1[vpn1] };
 
     if (!pte1.isValid()) {
-        const pt_paddr = allocator.allocPages(1);
+        const pt_paddr = try allocator.allocPages(1);
         pte1 = PageTableEntry.fromPhysical(pt_paddr, @intFromEnum(PageFlags.valid));
         table1[vpn1] = pte1.raw;
     }
@@ -56,13 +61,13 @@ pub fn mapPage(table1: [*]u32, vaddr: u32, paddr: u32, flags: u32) void {
     log.debug("mm", "mapPage vaddr={x} -> paddr={x}", .{ vaddr, paddr });
 }
 
-pub fn unmapPage(table1: [*]u32, vaddr: u32) void {
-    if (!isAligned(vaddr, PAGE_SIZE)) @panic("Unaligned virtual address");
+pub fn unmapPage(table1: [*]u32, vaddr: u32) PagingError!void {
+    if (!isAligned(vaddr, PAGE_SIZE)) return error.UnalignedAddress;
 
     const vpn1 = (vaddr >> sv32.VPN1_SHIFT) & sv32.VPN_MASK;
     const pte1 = PageTableEntry{ .raw = table1[vpn1] };
 
-    if (!pte1.isValid()) @panic("Page not mapped");
+    if (!pte1.isValid()) return error.NotMapped;
 
     const vpn0 = (vaddr >> sv32.VPN0_SHIFT) & sv32.VPN_MASK;
     const table0: [*]u32 = @ptrFromInt(pte1.getPhysicalAddress());

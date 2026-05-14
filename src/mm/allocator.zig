@@ -3,6 +3,11 @@ const log = @import("logger");
 
 pub const PAGE_SIZE: u32 = layout.PAGE_SIZE;
 
+pub const AllocError = error{
+    OutOfMemory,
+    InvalidPageCount,
+};
+
 var next_free_paddr: u32 = undefined;
 var end_paddr: u32 = undefined;
 
@@ -11,9 +16,9 @@ pub fn init(free_ram_start: u32) void {
     end_paddr = @intFromPtr(@extern([*]u8, .{ .name = "__free_ram_end" }));
 }
 
-pub fn allocPages(n: u32) u32 {
+pub fn allocPages(n: u32) AllocError!u32 {
     if (n == 0) {
-        @panic("Invalid page count");
+        return error.InvalidPageCount;
     }
 
     const paddr = next_free_paddr;
@@ -21,7 +26,7 @@ pub fn allocPages(n: u32) u32 {
     next_free_paddr += size;
 
     if (next_free_paddr > end_paddr) {
-        @panic("Out of memory");
+        return error.OutOfMemory;
     }
 
     const ptr: [*]u8 = @ptrFromInt(paddr);
