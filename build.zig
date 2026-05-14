@@ -104,22 +104,26 @@ pub fn build(b: *std.Build) void {
     sched_scheduler_module.addImport("process", proc_process_module);
     sched_scheduler_module.addImport("logger", lib_logger_module);
 
-    const syscall_module = mod.create("src/syscall/syscall.zig");
+    const abi_module = mod.create("src/abi/syscall.zig");
 
     const kernel_context_module = mod.create("src/kernel/context.zig");
-    kernel_context_module.addImport("arch", arch_module);
     kernel_context_module.addImport("process", proc_process_module);
     kernel_context_module.addImport("scheduler", sched_scheduler_module);
-    kernel_context_module.addImport("syscall", syscall_module);
-    kernel_context_module.addImport("fs", fs_module);
-    kernel_context_module.addImport("sbi", drivers_sbi_module);
-    kernel_context_module.addImport("logger", lib_logger_module);
-    kernel_context_module.addImport("panic", lib_panic_module);
+
+    const kernel_syscall_module = mod.create("src/kernel/syscall.zig");
+    kernel_syscall_module.addImport("arch", arch_module);
+    kernel_syscall_module.addImport("kernel_context", kernel_context_module);
+    kernel_syscall_module.addImport("abi", abi_module);
+    kernel_syscall_module.addImport("fs", fs_module);
+    kernel_syscall_module.addImport("sbi", drivers_sbi_module);
+    kernel_syscall_module.addImport("logger", lib_logger_module);
 
     const kernel_trap_module = mod.create("src/kernel/trap.zig");
     kernel_trap_module.addImport("arch", arch_module);
     kernel_trap_module.addImport("kernel_context", kernel_context_module);
+    kernel_trap_module.addImport("kernel_syscall", kernel_syscall_module);
     kernel_trap_module.addImport("logger", lib_logger_module);
+    kernel_trap_module.addImport("panic", lib_panic_module);
 
     const kernel_main_module = mod.create("src/kernel/main.zig");
     kernel_main_module.addImport("arch", arch_module);
@@ -142,7 +146,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(exe);
 
     const user_module = mod.create("src/user/main.zig");
-    user_module.addImport("syscall", syscall_module);
+    user_module.addImport("abi", abi_module);
 
     const user = b.addExecutable(.{
         .name = "user.elf",
