@@ -4,13 +4,11 @@
 //! Logic mirrors the C reference implementation exactly.
 
 const allocator = @import("allocator");
-const paging = @import("paging");
 const layout = @import("layout");
 const arch = @import("arch");
 const virtio = @import("virtio");
 const log = @import("logger");
 
-const PageFlags = paging.PageFlags;
 const PAGE_SIZE = layout.PAGE_SIZE;
 
 extern const __kernel_base: [*]u8;
@@ -42,7 +40,7 @@ pub const Process = struct {
 
     /// Allocate and initialize a new process slot. `image` may be empty for an idle process.
     /// Errors if no free slots remain or if paging/allocator operations fail.
-    pub fn create(image: []const u8) (ProcessError || paging.PagingError || allocator.AllocError)!*Process {
+    pub fn create(image: []const u8) (ProcessError || arch.PagingError || allocator.AllocError)!*Process {
         // Find first free slot (search from 0, like C)
         var slot_index: usize = 0;
         var proc: ?*Process = null;
@@ -117,19 +115,23 @@ pub const Process = struct {
 
         log.info("proc", "create: mapping kernel_base={x} .. free_ram_end={x}", .{ kernel_base, free_ram_end });
 
+        const root = arch.Paging.rootFromPtr(pt);
         var paddr: u32 = kernel_base;
         while (paddr < free_ram_end) : (paddr += PAGE_SIZE) {
-            try paging.mapPage(pt, paddr, paddr, @intFromEnum(PageFlags.read) |
-                @intFromEnum(PageFlags.write) |
-                @intFromEnum(PageFlags.exec));
+            try arch.Paging.map(
+                root,
+                @enumFromInt(paddr),
+                @enumFromInt(paddr),
+                &.{ .read, .write, .exec },
+            );
         }
 
         // Map VirtIO block device MMIO region
-        try paging.mapPage(
-            pt,
-            virtio.VIRTIO_BLK_PADDR,
-            virtio.VIRTIO_BLK_PADDR,
-            @intFromEnum(PageFlags.read) | @intFromEnum(PageFlags.write),
+        try arch.Paging.map(
+            root,
+            @enumFromInt(virtio.VIRTIO_BLK_PADDR),
+            @enumFromInt(virtio.VIRTIO_BLK_PADDR),
+            &.{ .read, .write },
         );
 
         // Map user image pages (if provided)
@@ -142,14 +144,11 @@ pub const Process = struct {
                 @memcpy(page[0..copy_len], image[off..][0..copy_len]);
 
                 const vaddr = USER_BASE + @as(u32, @intCast(off));
-                try paging.mapPage(
-                    pt,
-                    vaddr,
-                    page_paddr,
-                    @intFromEnum(PageFlags.read) |
-                        @intFromEnum(PageFlags.write) |
-                        @intFromEnum(PageFlags.exec) |
-                        @intFromEnum(PageFlags.user),
+                try arch.Paging.map(
+                    root,
+                    @enumFromInt(vaddr),
+                    @enumFromInt(page_paddr),
+                    &.{ .read, .write, .exec, .user },
                 );
             }
         }
@@ -234,29 +233,21 @@ pub fn yield() void {
     const next_sp_val = next.?.sp;
     const ra_at_sp: u32 = @as(*const u32, @ptrFromInt(next_sp_val)).*;
     log.info("proc", "yield pid={} -> pid={}", .{ prev.?.pid, next.?.pid });
-    log.debug("proc", "yield satp={x} sscratch={x} next.sp={x} ra_at_sp={x}", .{
-        arch.SATP_SV32 | (@intFromPtr(next.?.page_table) / allocator.PAGE_SIZE),
-        @intFromPtr(&next.?.stack) + STACK_SIZE,
+    log.debug("proc", "yield next.sp={x} ra_at_sp={x}", .{
         next_sp_val,
         ra_at_sp,
     });
 
-    asm volatile (
-        \\sfence.vma
-        \\csrw satp, %[satp]
-        \\sfence.vma
-        \\csrw sscratch, %[sscratch]
-        :
-        : [satp] "r" (arch.SATP_SV32 | (@intFromPtr(next.?.page_table) / allocator.PAGE_SIZE)),
-          [sscratch] "r" (@intFromPtr(&next.?.stack) + STACK_SIZE),
-    );
+    const root = arch.Paging.rootFromPtr(next.?.page_table);
+    const stack_top = @intFromPtr(&next.?.stack) + STACK_SIZE;
+    arch.Context.activateAddressSpace(root, stack_top);
 
     log.debug("proc", "switch_context prev.sp ptr={x} next.sp ptr={x}", .{
         @intFromPtr(&prev.?.sp),
         @intFromPtr(&next.?.sp),
     });
 
-    arch.switch_context(&prev.?.sp, &next.?.sp);
+    arch.Context.swap(&prev.?.sp, &next.?.sp);
 
     log.debug("proc", "switch_context returned (back to pid={})", .{current_proc.?.pid});
 }

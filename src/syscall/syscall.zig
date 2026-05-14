@@ -15,49 +15,62 @@ pub const SysCall = enum(u32) {
     _,
 };
 
-pub fn dispatch(frame: *arch.TrapFrame) void {
-    const syscall_enum: SysCall = @enumFromInt(frame.a7);
+pub fn dispatch(frame: *arch.Trap.Frame) void {
+    const syscall_enum: SysCall = @enumFromInt(arch.Syscall.number(frame));
 
-    log.debug("syscall", "syscall={} a0={x} a1={x} a2={x}", .{ frame.a7, frame.a0, frame.a1, frame.a2 });
+    log.debug("syscall", "syscall={} a0={x} a1={x} a2={x}", .{
+        arch.Syscall.number(frame),
+        arch.Syscall.arg(frame, 0),
+        arch.Syscall.arg(frame, 1),
+        arch.Syscall.arg(frame, 2),
+    });
 
     switch (syscall_enum) {
         .write => {
-            frame.a0 = @bitCast(io.write(frame.a0, frame.a1, frame.a2));
+            arch.Syscall.setReturn(frame, @bitCast(io.write(
+                arch.Syscall.arg(frame, 0),
+                arch.Syscall.arg(frame, 1),
+                arch.Syscall.arg(frame, 2),
+            )));
         },
         .read => {
-            frame.a0 = @bitCast(io.read(frame.a0, frame.a1, frame.a2));
+            arch.Syscall.setReturn(frame, @bitCast(io.read(
+                arch.Syscall.arg(frame, 0),
+                arch.Syscall.arg(frame, 1),
+                arch.Syscall.arg(frame, 2),
+            )));
         },
         .exit => {
-            proc.exit(@bitCast(frame.a0));
+            proc.exit(@bitCast(arch.Syscall.arg(frame, 0)));
         },
         .yield => {
             proc.yield();
         },
         .getpid => {
-            frame.a0 = proc.getpid();
+            arch.Syscall.setReturn(frame, proc.getpid());
         },
         .readfile => {
-            const filename: [*:0]const u8 = @ptrFromInt(frame.a0);
-            const buf: [*]u8 = @ptrFromInt(frame.a1);
-            const len: usize = @truncate(frame.a2);
+            const filename: [*:0]const u8 = @ptrFromInt(arch.Syscall.arg(frame, 0));
+            const buf: [*]u8 = @ptrFromInt(arch.Syscall.arg(frame, 1));
+            const len: usize = @truncate(arch.Syscall.arg(frame, 2));
 
             const file = fs.lookup(filename) orelse {
-                frame.a0 = @bitCast(@as(i32, -1));
+                arch.Syscall.setReturn(frame, @bitCast(@as(i32, -1)));
                 return;
             };
 
             const copy_len = @min(len, file.size);
             @memcpy(buf[0..copy_len], file.data[0..copy_len]);
-            frame.a0 = @bitCast(@as(i32, @intCast(copy_len)));
+            arch.Syscall.setReturn(frame, @bitCast(@as(i32, @intCast(copy_len))));
         },
         .writefile => {
-            const filename: [*:0]const u8 = @ptrFromInt(frame.a0);
-            const buf: [*]const u8 = @ptrFromInt(frame.a1);
-            const len: usize = @truncate(frame.a2);
+            const filename: [*:0]const u8 = @ptrFromInt(arch.Syscall.arg(frame, 0));
+            const buf: [*]const u8 = @ptrFromInt(arch.Syscall.arg(frame, 1));
+            const len: usize = @truncate(arch.Syscall.arg(frame, 2));
 
             const file = fs.lookup(filename) orelse fs.create(filename);
             const f = file orelse {
-                frame.a0 = @bitCast(@as(i32, -1));
+                arch.Syscall.setReturn(frame, @bitCast(@as(i32, -1)));
                 return;
             };
 
@@ -67,10 +80,10 @@ pub fn dispatch(frame: *arch.TrapFrame) void {
 
             fs.flush();
 
-            frame.a0 = @bitCast(@as(i32, @intCast(copy_len)));
+            arch.Syscall.setReturn(frame, @bitCast(@as(i32, @intCast(copy_len))));
         },
         else => {
-            frame.a0 = @bitCast(@as(i32, -1));
+            arch.Syscall.setReturn(frame, @bitCast(@as(i32, -1)));
         },
     }
 }

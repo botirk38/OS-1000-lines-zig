@@ -2,8 +2,14 @@
 //! This module contains all RISC-V specific code including assembly routines,
 //! CSR operations, and trap handling.
 
-/// RISC-V Control and Status Register operations
-pub const csr = struct {
+const allocator = @import("allocator");
+const log = @import("logger");
+
+// ---------------------------------------------------------------------------
+// Private RISC-V implementation details
+// ---------------------------------------------------------------------------
+
+const csr = struct {
     pub fn read(comptime reg: []const u8) u32 {
         return asm volatile ("csrr %[ret], " ++ reg
             : [ret] "=r" (-> u32),
@@ -18,68 +24,269 @@ pub const csr = struct {
     }
 };
 
-/// RISC-V specific constants
-pub const SATP_SV32: u32 = 1 << 31;
-pub const SSTATUS_SPIE: u32 = 1 << 5;
-pub const SSTATUS_SUM: u32 = 1 << 18; // Supervisor User Memory access
-pub const ECALL_FROM_U: u32 = 8;
-pub const ECALL_FROM_S: u32 = 9;
+const SATP_SV32: u32 = 1 << 31;
+const SSTATUS_SPIE: u32 = 1 << 5;
+const SSTATUS_SUM: u32 = 1 << 18;
 
-/// SV32 two-level page-table constants (RISC-V Privileged spec §4.3).
-pub const sv32 = struct {
-    /// Each VPN field is 10 bits wide.
-    pub const VPN_BITS: u5 = 10;
-    /// Mask for a single 10-bit VPN (or the 10-bit PTE flags field).
-    pub const VPN_MASK: u32 = (1 << VPN_BITS) - 1; // 0x3FF
-    /// VPN[1]: bits [31:22] of a virtual address.
-    pub const VPN1_SHIFT: u5 = 22;
-    /// VPN[0]: bits [21:12] of a virtual address.
-    pub const VPN0_SHIFT: u5 = 12;
-    /// PPN starts at bit 10 inside a page-table entry.
-    pub const PTE_PPN_SHIFT: u5 = 10;
-    /// The PPN field of a PTE is 22 bits wide (SV32 has a 34-bit physical space).
-    pub const PTE_PPN_BITS: u5 = 22;
-    /// Mask for the full 22-bit PPN stored in a PTE.
-    pub const PTE_PPN_MASK: u32 = (1 << PTE_PPN_BITS) - 1; // 0x3FFFFF
-    /// Mask for the 10-bit flags/RSW field at the bottom of a PTE.
-    pub const PTE_FLAGS_MASK: u32 = VPN_MASK; // 0x3FF
+const sv32 = struct {
+    const VPN_BITS: u5 = 10;
+    const VPN_MASK: u32 = (1 << VPN_BITS) - 1;
+    const VPN1_SHIFT: u5 = 22;
+    const VPN0_SHIFT: u5 = 12;
+    const PTE_PPN_SHIFT: u5 = 10;
+    const PTE_PPN_BITS: u5 = 22;
+    const PTE_PPN_MASK: u32 = (1 << PTE_PPN_BITS) - 1;
+    const PTE_FLAGS_MASK: u32 = VPN_MASK;
 };
 
-pub const SCAUSE_INTERRUPT_BIT: u32 = 1 << 31;
-pub const SCAUSE_CODE_MASK: u32 = 0x7fff_ffff;
-// Exception codes (when interrupt bit is 0)
-pub const EXC_INST_ADDR_MISALIGNED: u32 = 0;
-pub const EXC_INST_ACCESS_FAULT: u32 = 1;
-pub const EXC_ILLEGAL_INSTRUCTION: u32 = 2;
-pub const EXC_BREAKPOINT: u32 = 3;
-pub const EXC_LOAD_ADDR_MISALIGNED: u32 = 4;
-pub const EXC_LOAD_ACCESS_FAULT: u32 = 5;
-pub const EXC_STORE_ADDR_MISALIGNED: u32 = 6;
-pub const EXC_STORE_ACCESS_FAULT: u32 = 7;
-pub const EXC_ECALL_FROM_U: u32 = 8;
-pub const EXC_ECALL_FROM_S: u32 = 9;
-pub const EXC_INST_PAGE_FAULT: u32 = 12;
-pub const EXC_LOAD_PAGE_FAULT: u32 = 13;
-pub const EXC_STORE_PAGE_FAULT: u32 = 15;
-// Interrupt codes (when interrupt bit is 1)
-pub const IRQ_SOFTWARE_S: u32 = 1;
-pub const IRQ_TIMER_S: u32 = 5;
-pub const IRQ_EXTERNAL_S: u32 = 9;
+const SCAUSE_INTERRUPT_BIT: u32 = 1 << 31;
+const SCAUSE_CODE_MASK: u32 = 0x7fff_ffff;
 
-pub fn isInterrupt(scause: u32) bool {
+const EXC_ECALL_FROM_U: u32 = 8;
+const EXC_ECALL_FROM_S: u32 = 9;
+const EXC_INST_PAGE_FAULT: u32 = 12;
+const EXC_LOAD_PAGE_FAULT: u32 = 13;
+const EXC_STORE_PAGE_FAULT: u32 = 15;
+
+const IRQ_SOFTWARE_S: u32 = 1;
+const IRQ_TIMER_S: u32 = 5;
+const IRQ_EXTERNAL_S: u32 = 9;
+
+fn isInterrupt(scause: u32) bool {
     return (scause & SCAUSE_INTERRUPT_BIT) != 0;
 }
-pub fn causeCode(scause: u32) u32 {
+
+fn causeCode(scause: u32) u32 {
     return scause & SCAUSE_CODE_MASK;
 }
-pub fn isException(scause: u32, code: u32) bool {
+
+fn isException(scause: u32, code: u32) bool {
     return !isInterrupt(scause) and causeCode(scause) == code;
 }
-pub fn isInterruptCode(scause: u32, code: u32) bool {
-    return isInterrupt(scause) and causeCode(scause) == code;
+
+// ---------------------------------------------------------------------------
+// Public architecture interface
+// ---------------------------------------------------------------------------
+
+pub const Word = u32;
+pub const VAddr = enum(Word) { _ };
+pub const PAddr = enum(Word) { _ };
+
+pub const PagingError = error{
+    UnalignedAddress,
+    NotMapped,
+};
+
+pub const TrapKind = enum {
+    user_syscall,
+    supervisor_syscall,
+    breakpoint,
+    illegal_instruction,
+    instruction_page_fault,
+    load_page_fault,
+    store_page_fault,
+    external_interrupt,
+    timer_interrupt,
+    software_interrupt,
+    unknown_exception,
+    unknown_interrupt,
+};
+
+pub const TrapInfo = struct {
+    kind: TrapKind,
+    cause: Word,
+    value: Word,
+    pc: Word,
+};
+
+pub const Trap = struct {
+    pub const Frame = TrapFrame;
+
+    pub fn initVector() void {
+        csr.write("stvec", @intFromPtr(&kernelEntry));
+    }
+
+    pub fn read() TrapInfo {
+        const scause = csr.read("scause");
+        const kind: TrapKind = blk: {
+            if (isException(scause, EXC_ECALL_FROM_U)) break :blk .user_syscall;
+            if (isException(scause, EXC_ECALL_FROM_S)) break :blk .supervisor_syscall;
+            if (isException(scause, 3)) break :blk .breakpoint;
+            if (isException(scause, 2)) break :blk .illegal_instruction;
+            if (isException(scause, EXC_INST_PAGE_FAULT)) break :blk .instruction_page_fault;
+            if (isException(scause, EXC_LOAD_PAGE_FAULT)) break :blk .load_page_fault;
+            if (isException(scause, EXC_STORE_PAGE_FAULT)) break :blk .store_page_fault;
+            if (isInterrupt(scause)) {
+                const code = causeCode(scause);
+                if (code == IRQ_EXTERNAL_S) break :blk .external_interrupt;
+                if (code == IRQ_TIMER_S) break :blk .timer_interrupt;
+                if (code == IRQ_SOFTWARE_S) break :blk .software_interrupt;
+                break :blk .unknown_interrupt;
+            }
+            break :blk .unknown_exception;
+        };
+        return .{
+            .kind = kind,
+            .cause = scause,
+            .value = csr.read("stval"),
+            .pc = csr.read("sepc"),
+        };
+    }
+
+    pub fn pc() Word {
+        return csr.read("sepc");
+    }
+
+    pub fn setPc(new_pc: Word) void {
+        csr.write("sepc", new_pc);
+    }
+
+    pub fn status() Word {
+        return csr.read("sstatus");
+    }
+};
+
+pub const Syscall = struct {
+    pub fn number(frame: *Trap.Frame) u32 {
+        return frame.a7;
+    }
+
+    pub fn arg(frame: *Trap.Frame, index: u3) Word {
+        return switch (index) {
+            0 => frame.a0,
+            1 => frame.a1,
+            2 => frame.a2,
+            else => unreachable,
+        };
+    }
+
+    pub fn setReturn(frame: *Trap.Frame, value: Word) void {
+        frame.a0 = value;
+    }
+};
+
+pub const Context = struct {
+    pub fn swap(prev_sp: *Word, next_sp: *Word) void {
+        switch_context(prev_sp, next_sp);
+    }
+
+    pub fn activateAddressSpace(root: Paging.Root, kernel_stack_top: Word) void {
+        const satp = SATP_SV32 | (@intFromPtr(root.ptr) / 4096);
+        asm volatile (
+            \\sfence.vma
+            \\csrw satp, %[satp]
+            \\sfence.vma
+            \\csrw sscratch, %[sscratch]
+            :
+            : [satp] "r" (satp),
+              [sscratch] "r" (kernel_stack_top),
+        );
+    }
+};
+
+pub const Paging = struct {
+    pub const Root = struct {
+        ptr: [*]Word,
+    };
+
+    pub const Flag = enum {
+        read,
+        write,
+        exec,
+        user,
+    };
+
+    pub fn rootFromPtr(ptr: [*]Word) Root {
+        return .{ .ptr = ptr };
+    }
+
+    pub fn map(root: Root, vaddr: VAddr, paddr: PAddr, flags: []const Flag) (PagingError || allocator.AllocError)!void {
+        const raw_vaddr = @intFromEnum(vaddr);
+        const raw_paddr = @intFromEnum(paddr);
+
+        if (!isAligned(raw_vaddr, allocator.PAGE_SIZE)) return error.UnalignedAddress;
+        if (!isAligned(raw_paddr, allocator.PAGE_SIZE)) return error.UnalignedAddress;
+
+        const vpn1 = (raw_vaddr >> sv32.VPN1_SHIFT) & sv32.VPN_MASK;
+        var pte1 = PageTableEntry{ .raw = root.ptr[vpn1] };
+
+        if (!pte1.isValid()) {
+            const pt_paddr = try allocator.allocPages(1);
+            pte1 = PageTableEntry.fromPhysical(pt_paddr, @intFromEnum(PageFlags.valid));
+            root.ptr[vpn1] = pte1.raw;
+        }
+
+        const vpn0 = (raw_vaddr >> sv32.VPN0_SHIFT) & sv32.VPN_MASK;
+        const table0: [*]Word = @ptrFromInt(pte1.getPhysicalAddress());
+
+        var raw_flags: u32 = @intFromEnum(PageFlags.valid);
+        for (flags) |f| {
+            raw_flags |= switch (f) {
+                .read => @intFromEnum(PageFlags.read),
+                .write => @intFromEnum(PageFlags.write),
+                .exec => @intFromEnum(PageFlags.exec),
+                .user => @intFromEnum(PageFlags.user),
+            };
+        }
+
+        const pte0 = PageTableEntry.fromPhysical(raw_paddr, raw_flags);
+        table0[vpn0] = pte0.raw;
+
+        log.debug("mm", "map vaddr={x} -> paddr={x}", .{ raw_vaddr, raw_paddr });
+    }
+
+    pub fn unmap(root: Root, vaddr: VAddr) PagingError!void {
+        const raw_vaddr = @intFromEnum(vaddr);
+
+        if (!isAligned(raw_vaddr, allocator.PAGE_SIZE)) return error.UnalignedAddress;
+
+        const vpn1 = (raw_vaddr >> sv32.VPN1_SHIFT) & sv32.VPN_MASK;
+        const pte1 = PageTableEntry{ .raw = root.ptr[vpn1] };
+
+        if (!pte1.isValid()) return error.NotMapped;
+
+        const vpn0 = (raw_vaddr >> sv32.VPN0_SHIFT) & sv32.VPN_MASK;
+        const table0: [*]Word = @ptrFromInt(pte1.getPhysicalAddress());
+        table0[vpn0] = 0;
+    }
+};
+
+// ---------------------------------------------------------------------------
+// Private paging helpers
+// ---------------------------------------------------------------------------
+
+const PageFlags = enum(u32) {
+    valid = 1 << 0,
+    read = 1 << 1,
+    write = 1 << 2,
+    exec = 1 << 3,
+    user = 1 << 4,
+};
+
+const PageTableEntry = struct {
+    raw: u32,
+
+    fn fromPhysical(paddr: u32, flags: u32) PageTableEntry {
+        return .{ .raw = ((paddr / 4096) << sv32.PTE_PPN_SHIFT) | (flags & sv32.PTE_FLAGS_MASK) };
+    }
+
+    fn isValid(self: PageTableEntry) bool {
+        return (self.raw & @intFromEnum(PageFlags.valid)) != 0;
+    }
+
+    fn getPhysicalAddress(self: PageTableEntry) u32 {
+        return ((self.raw >> sv32.PTE_PPN_SHIFT) & sv32.PTE_PPN_MASK) * 4096;
+    }
+};
+
+fn isAligned(addr: u32, size: u32) bool {
+    return (addr & (size - 1)) == 0;
 }
 
-/// Trap frame structure for RISC-V register context
+// ---------------------------------------------------------------------------
+// Trap frame and assembly
+// ---------------------------------------------------------------------------
+
 pub const TrapFrame = packed struct {
     ra: u32,
     gp: u32,
@@ -114,8 +321,6 @@ pub const TrapFrame = packed struct {
     sp: u32,
 };
 
-// switch_context(prev_sp: *u32, next_sp: *u32) — global assembly, no compiler interference.
-// a0 = prev_sp, a1 = next_sp, exactly as the C reference.
 comptime {
     asm (
         \\.global switch_context
@@ -155,21 +360,12 @@ comptime {
     );
 }
 
-/// Extern declaration so Zig code can call switch_context by address.
 pub extern fn switch_context(prev_sp: *u32, next_sp: *u32) void;
 
-/// Kernel entry point for trap handling.
-/// On entry sp holds the interrupted context's sp (user or kernel).
-/// sscratch holds the top of the current process's kernel stack.
-/// csrrw atomically swaps them: sp gets the kernel stack, sscratch gets the
-/// interrupted sp. After saving all registers, sscratch is restored to the
-/// kernel stack top so the next trap finds it ready again.
 pub fn kernelEntry() callconv(.naked) void {
     asm volatile (
-    // Swap sp and sscratch: sp <- kernel stack top, sscratch <- user sp
         \\csrrw sp, sscratch, sp
         \\addi sp, sp, -4 * 31
-        // Save all general-purpose registers except sp (saved at slot 30)
         \\sw ra,  4 * 0(sp)
         \\sw gp,  4 * 1(sp)
         \\sw tp,  4 * 2(sp)
@@ -200,16 +396,12 @@ pub fn kernelEntry() callconv(.naked) void {
         \\sw s9,  4 * 27(sp)
         \\sw s10, 4 * 28(sp)
         \\sw s11, 4 * 29(sp)
-        // sscratch now holds the interrupted sp; save it at slot 30
         \\csrr a0, sscratch
         \\sw a0,  4 * 30(sp)
-        // Restore sscratch to kernel stack top for the next trap
         \\addi a0, sp, 4 * 31
         \\csrw sscratch, a0
-        // Call handleTrap(frame)
         \\mv a0, sp
         \\call handleTrap
-        // Restore all registers
         \\lw ra,  4 * 0(sp)
         \\lw gp,  4 * 1(sp)
         \\lw tp,  4 * 2(sp)
@@ -245,7 +437,6 @@ pub fn kernelEntry() callconv(.naked) void {
     );
 }
 
-/// Boot entry point
 export fn boot() linksection(".text.boot") callconv(.naked) void {
     asm volatile (
         \\mv sp, %[stack_top]
@@ -257,3 +448,7 @@ export fn boot() linksection(".text.boot") callconv(.naked) void {
 
 extern fn handleTrap(frame: *TrapFrame) callconv(.c) void;
 extern fn kernel_main() noreturn;
+
+comptime {
+    @import("interface").validate(@This());
+}

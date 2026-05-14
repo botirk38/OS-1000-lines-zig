@@ -8,8 +8,8 @@ const log = @import("logger");
 
 /// Called from user_entry global asm to log before sret.
 export fn user_entry_log() callconv(.c) void {
-    const sepc = arch.csr.read("sepc");
-    const sstatus = arch.csr.read("sstatus");
+    const sepc = arch.Trap.pc();
+    const sstatus = arch.Trap.status();
     log.debug("trap", "user_entry: about to sret sepc={x} sstatus={x}", .{ sepc, sstatus });
 }
 
@@ -35,23 +35,30 @@ comptime {
 pub extern fn user_entry() void;
 
 /// Trap handler called from `kernelEntry` assembly stub.
-export fn handleTrap(frame: *arch.TrapFrame) callconv(.c) void {
-    const scause = arch.csr.read("scause");
-    const stval = arch.csr.read("stval");
-    const sepc = arch.csr.read("sepc");
+export fn handleTrap(frame: *arch.Trap.Frame) callconv(.c) void {
+    const trap = arch.Trap.read();
 
-    log.debug("trap", "handleTrap scause={x} sepc={x} stval={x}", .{ scause, sepc, stval });
+    log.debug("trap", "handleTrap kind={s} cause={x} pc={x} stval={x}", .{
+        @tagName(trap.kind),
+        trap.cause,
+        trap.pc,
+        trap.value,
+    });
 
-    if (arch.isException(scause, arch.ECALL_FROM_U)) {
-        syscall.dispatch(frame);
-        arch.csr.write("sepc", sepc + 4);
-        return;
+    switch (trap.kind) {
+        .user_syscall => {
+            syscall.dispatch(frame);
+            arch.Trap.setPc(trap.pc + 4);
+            return;
+        },
+        else => {},
     }
 
-    panic_lib.panic("trap: scause={x}, stval={x}, sepc={x}, ra={x}, sp={x}", .{
-        scause,
-        stval,
-        sepc,
+    panic_lib.panic("trap: kind={s} cause={x}, stval={x}, sepc={x}, ra={x}, sp={x}", .{
+        @tagName(trap.kind),
+        trap.cause,
+        trap.value,
+        trap.pc,
         frame.ra,
         frame.sp,
     });

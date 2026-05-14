@@ -27,6 +27,13 @@ pub fn build(b: *std.Build) void {
     const build_opts = b.addOptions();
     build_opts.addOption([]const u8, "log_level", log_level);
 
+    // Target architecture selection. Only riscv32 is supported today.
+    const arch_name = b.option([]const u8, "arch", "Target architecture (default: riscv32)") orelse "riscv32";
+    const arch_path = if (std.mem.eql(u8, arch_name, "riscv32"))
+        "src/arch/riscv32.zig"
+    else
+        std.debug.panic("unsupported architecture: {s}", .{arch_name});
+
     // Helper to reduce boilerplate for bare-metal modules.
     const Mod = struct {
         b: *std.Build,
@@ -42,7 +49,10 @@ pub fn build(b: *std.Build) void {
     };
     const mod = Mod{ .b = b, .target = target, .optimize = effective_optimize };
 
-    const arch_module = mod.create("src/arch/riscv32.zig");
+    const arch_module = mod.create(arch_path);
+
+    const arch_interface_module = mod.create("src/arch/interface.zig");
+    arch_module.addImport("interface", arch_interface_module);
 
     const drivers_sbi_module = mod.create("src/drivers/sbi.zig");
 
@@ -65,6 +75,9 @@ pub fn build(b: *std.Build) void {
     mm_allocator_module.addImport("layout", mm_layout_module);
     mm_allocator_module.addImport("logger", lib_logger_module);
 
+    arch_module.addImport("allocator", mm_allocator_module);
+    arch_module.addImport("logger", lib_logger_module);
+
     const lib_math_module = mod.create("src/lib/math.zig");
 
     const drivers_virtio_module = mod.create("src/drivers/virtio_blk.zig");
@@ -79,14 +92,8 @@ pub fn build(b: *std.Build) void {
     fs_module.addImport("logger", lib_logger_module);
     fs_module.addImport("math", lib_math_module);
 
-    const mm_paging_module = mod.create("src/mm/paging.zig");
-    mm_paging_module.addImport("allocator", mm_allocator_module);
-    mm_paging_module.addImport("arch", arch_module);
-    mm_paging_module.addImport("logger", lib_logger_module);
-
     const proc_process_module = mod.create("src/proc/process.zig");
     proc_process_module.addImport("allocator", mm_allocator_module);
-    proc_process_module.addImport("paging", mm_paging_module);
     proc_process_module.addImport("layout", mm_layout_module);
     proc_process_module.addImport("arch", arch_module);
     proc_process_module.addImport("virtio", drivers_virtio_module);
