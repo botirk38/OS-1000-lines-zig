@@ -44,13 +44,14 @@ export fn kernel_main() noreturn {
     log.info("kernel", "scheduler initialized", .{});
 
     // Create idle process (slot 0)
-    process.idle_proc = process.Process.create(null);
-    process.idle_proc.?.pid = 0; // Override: idle has pid=0
-    process.current_proc = process.idle_proc;
+    const idle = process.createIdle();
+    process.current_proc = idle;
     log.info("kernel", "idle process created", .{});
 
     // Create user process
-    _ = process.Process.create(user_bin);
+    _ = process.createUser(user_bin) orelse {
+        panic_lib.panic("failed to create user process", .{});
+    };
     log.info("kernel", "user process created", .{});
 
     // Yield to the scheduler; if we ever return here, all processes have exited

@@ -40,6 +40,7 @@ pub const VirtIoError = error{
     NotBlockDevice,
     SectorOutOfRange,
     IoError,
+    AllocFailed,
 };
 
 const VirtIoBlkReqType = enum(u32) {
@@ -114,9 +115,9 @@ pub const VirtioBlk = struct {
         regWrite32(offset, regRead32(offset) | value);
     }
 
-    fn virtqInit(index: u32) *Virtq {
+    fn virtqInit(index: u32) VirtIoError!*Virtq {
         const pages_needed = math.alignUp(@sizeOf(Virtq), PAGE_SIZE) / PAGE_SIZE;
-        const vq_paddr = allocator.allocPages(pages_needed);
+        const vq_paddr = allocator.allocPages(pages_needed) catch return error.AllocFailed;
         const vq: *Virtq = @ptrFromInt(vq_paddr);
 
         vq.* = .{
@@ -241,14 +242,14 @@ pub const VirtioBlk = struct {
 
         regWrite32(VIRTIO_REG_PAGE_SIZE, PAGE_SIZE);
 
-        const request_vq = virtqInit(0);
+        const request_vq = try virtqInit(0);
 
         regWrite32(VIRTIO_REG_DEVICE_STATUS, VIRTIO_STATUS_DRIVER_OK);
 
         const capacity = regRead64(VIRTIO_REG_DEVICE_CONFIG) * SECTOR_SIZE;
 
         const req_pages = math.alignUp(@sizeOf(VirtioBlkReq), PAGE_SIZE) / PAGE_SIZE;
-        const req_paddr = allocator.allocPages(req_pages);
+        const req_paddr = allocator.allocPages(req_pages) catch return error.AllocFailed;
         const req: *VirtioBlkReq = @ptrFromInt(req_paddr);
 
         log.info("virtio", "capacity: {} bytes", .{capacity});
@@ -261,8 +262,9 @@ pub const VirtioBlk = struct {
         };
     }
 
-    pub fn readSector(self: *VirtioBlk, buf: [*]u8, sector: usize) VirtIoError!void {
+    pub fn readSector(self: *VirtioBlk, buf: []u8, sector: usize) VirtIoError!void {
         try self.validateSector(sector);
+        if (buf.len < SECTOR_SIZE) return error.IoError;
         log.debug("virtio", "readSector sector={}", .{sector});
 
         const req = self.req;
@@ -274,8 +276,9 @@ pub const VirtioBlk = struct {
         log.debug("virtio", "readSector sector={} done", .{sector});
     }
 
-    pub fn writeSector(self: *VirtioBlk, buf: [*]u8, sector: usize) VirtIoError!void {
+    pub fn writeSector(self: *VirtioBlk, buf: []const u8, sector: usize) VirtIoError!void {
         try self.validateSector(sector);
+        if (buf.len < SECTOR_SIZE) return error.IoError;
         log.debug("virtio", "writeSector sector={}", .{sector});
 
         const req = self.req;

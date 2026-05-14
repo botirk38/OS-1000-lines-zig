@@ -62,7 +62,7 @@ pub fn init(virtio_blk: *virtio.VirtioBlk) void {
     log.debug("fs", "reading {} sectors ({} bytes)", .{ DISK_SIZE / SECTOR_SIZE, DISK_SIZE });
     for (0..DISK_SIZE / SECTOR_SIZE) |sector| {
         log.debug("fs", "readSector {}", .{sector});
-        blk.readSector(disk[sector * SECTOR_SIZE ..].ptr, sector) catch |err| {
+        blk.readSector(disk[sector * SECTOR_SIZE ..][0..SECTOR_SIZE], sector) catch |err| {
             log.err("fs", "readSector {} failed: {}", .{ sector, err });
         };
     }
@@ -90,14 +90,14 @@ pub fn init(virtio_blk: *virtio.VirtioBlk) void {
         setName(&file.name, raw_name[0..copy_len]);
         file.name_len = copy_len;
 
-        const data_off = off + 512;
+        const data_off = off + SECTOR_SIZE;
         const copy_data_len = @min(filesz, file.data.len);
         @memcpy(file.data[0..copy_data_len], disk[data_off .. data_off + copy_data_len]);
-        file.size = filesz;
+        file.size = copy_data_len;
 
         log.info("fs", "loaded '{s}' ({} bytes)", .{ raw_name[0..copy_len], filesz });
 
-        off += 512 + math.alignUp(filesz, 512);
+        off += SECTOR_SIZE + math.alignUp(filesz, SECTOR_SIZE);
     }
 }
 
@@ -135,7 +135,7 @@ pub fn flush() void {
         if (!file.in_use) continue;
 
         const header: *TarHeader = @ptrCast(@alignCast(&disk[off]));
-        @memset(@as([*]u8, @ptrCast(header))[0..512], 0);
+        @memset(@as([*]u8, @ptrCast(header))[0..SECTOR_SIZE], 0);
 
         setName(&header.name, std.mem.span(@as([*:0]const u8, @ptrCast(&file.name))));
         @memcpy(header.mode[0..7], "0000644");
@@ -153,15 +153,15 @@ pub fn flush() void {
         header.magic = "ustar\x00".*;
         header.version = "00".*;
 
-        @memcpy(disk[off + 512 .. off + 512 + file.size], file.data[0..file.size]);
+        @memcpy(disk[off + SECTOR_SIZE .. off + SECTOR_SIZE + file.size], file.data[0..file.size]);
 
-        off += 512 + math.alignUp(file.size, 512);
+        off += SECTOR_SIZE + math.alignUp(file.size, SECTOR_SIZE);
         if (off >= DISK_SIZE) break;
     }
 
     // Write disk back to VirtIO
     for (0..DISK_SIZE / SECTOR_SIZE) |sector| {
-        blk.writeSector(disk[sector * SECTOR_SIZE ..].ptr, sector) catch |err| {
+        blk.writeSector(disk[sector * SECTOR_SIZE ..][0..SECTOR_SIZE], sector) catch |err| {
             log.err("fs", "flush writeSector {} failed: {}", .{ sector, err });
         };
     }
