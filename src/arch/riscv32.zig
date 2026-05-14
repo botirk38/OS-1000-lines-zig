@@ -77,7 +77,7 @@ pub const PagingError = error{
     NotMapped,
 };
 
-pub const TrapKind = enum {
+pub const Exception = enum {
     user_syscall,
     supervisor_syscall,
     breakpoint,
@@ -85,11 +85,19 @@ pub const TrapKind = enum {
     instruction_page_fault,
     load_page_fault,
     store_page_fault,
-    external_interrupt,
-    timer_interrupt,
-    software_interrupt,
-    unknown_exception,
-    unknown_interrupt,
+    unknown,
+};
+
+pub const Interrupt = enum {
+    software,
+    timer,
+    external,
+    unknown,
+};
+
+pub const TrapKind = union(enum) {
+    exception: Exception,
+    interrupt: Interrupt,
 };
 
 pub const TrapInfo = struct {
@@ -109,21 +117,21 @@ pub const Trap = struct {
     pub fn read() TrapInfo {
         const scause = csr.read("scause");
         const kind: TrapKind = blk: {
-            if (isException(scause, EXC_ECALL_FROM_U)) break :blk .user_syscall;
-            if (isException(scause, EXC_ECALL_FROM_S)) break :blk .supervisor_syscall;
-            if (isException(scause, 3)) break :blk .breakpoint;
-            if (isException(scause, 2)) break :blk .illegal_instruction;
-            if (isException(scause, EXC_INST_PAGE_FAULT)) break :blk .instruction_page_fault;
-            if (isException(scause, EXC_LOAD_PAGE_FAULT)) break :blk .load_page_fault;
-            if (isException(scause, EXC_STORE_PAGE_FAULT)) break :blk .store_page_fault;
+            if (isException(scause, EXC_ECALL_FROM_U)) break :blk .{ .exception = .user_syscall };
+            if (isException(scause, EXC_ECALL_FROM_S)) break :blk .{ .exception = .supervisor_syscall };
+            if (isException(scause, 3)) break :blk .{ .exception = .breakpoint };
+            if (isException(scause, 2)) break :blk .{ .exception = .illegal_instruction };
+            if (isException(scause, EXC_INST_PAGE_FAULT)) break :blk .{ .exception = .instruction_page_fault };
+            if (isException(scause, EXC_LOAD_PAGE_FAULT)) break :blk .{ .exception = .load_page_fault };
+            if (isException(scause, EXC_STORE_PAGE_FAULT)) break :blk .{ .exception = .store_page_fault };
             if (isInterrupt(scause)) {
                 const code = causeCode(scause);
-                if (code == IRQ_EXTERNAL_S) break :blk .external_interrupt;
-                if (code == IRQ_TIMER_S) break :blk .timer_interrupt;
-                if (code == IRQ_SOFTWARE_S) break :blk .software_interrupt;
-                break :blk .unknown_interrupt;
+                if (code == IRQ_EXTERNAL_S) break :blk .{ .interrupt = .external };
+                if (code == IRQ_TIMER_S) break :blk .{ .interrupt = .timer };
+                if (code == IRQ_SOFTWARE_S) break :blk .{ .interrupt = .software };
+                break :blk .{ .interrupt = .unknown };
             }
-            break :blk .unknown_exception;
+            break :blk .{ .exception = .unknown };
         };
         return .{
             .kind = kind,
@@ -133,16 +141,8 @@ pub const Trap = struct {
         };
     }
 
-    pub fn pc() Word {
-        return csr.read("sepc");
-    }
-
     pub fn setPc(new_pc: Word) void {
         csr.write("sepc", new_pc);
-    }
-
-    pub fn status() Word {
-        return csr.read("sstatus");
     }
 };
 

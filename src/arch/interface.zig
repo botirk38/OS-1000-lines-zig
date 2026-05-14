@@ -25,7 +25,8 @@ pub fn validate(comptime Arch: type) void {
         if (!@hasDecl(Arch.Trap, "Frame")) @compileError("arch.Trap missing 'Frame'");
         if (!@hasDecl(Arch.Trap, "initVector")) @compileError("arch.Trap missing 'initVector'");
         if (!@hasDecl(Arch.Trap, "read")) @compileError("arch.Trap missing 'read'");
-        if (!@hasDecl(Arch.Trap, "pc")) @compileError("arch.Trap missing 'pc'");
+        if (!@hasDecl(Arch, "Exception")) @compileError("arch missing 'Exception'");
+        if (!@hasDecl(Arch, "Interrupt")) @compileError("arch missing 'Interrupt'");
         if (!@hasDecl(Arch.Trap, "setPc")) @compileError("arch.Trap missing 'setPc'");
 
         if (!@hasDecl(Arch, "Syscall")) @compileError("arch missing 'Syscall'");
