@@ -65,7 +65,7 @@ fn write(frame: *arch.Trap.Frame) i32 {
     const ptr: [*]const u8 = @ptrFromInt(buf);
     var i: u32 = 0;
     while (i < len) : (i += 1) {
-        arch.Sbi.putChar(ptr[i]);
+        arch.Console.putChar(ptr[i]);
     }
     return @intCast(i);
 }
@@ -81,7 +81,7 @@ fn read(ctx: *context.Context, frame: *arch.Trap.Frame) i32 {
 
     const ptr: [*]u8 = @ptrFromInt(buf);
     const ch = while (true) {
-        const c = arch.Sbi.getChar();
+        const c = arch.Console.getChar();
         if (c >= 0) break c;
         ctx.yield();
     };

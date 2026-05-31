@@ -49,10 +49,21 @@ pub fn build(b: *std.Build) void {
     };
     const mod = Mod{ .b = b, .target = target, .optimize = effective_optimize };
 
+    // Low-level platform I/O: RISC-V SBI ecalls (putChar, getChar, shutdown).
+    // No kernel dependencies — safe for the lowest layers to import.
+    const sbi_module = mod.create("src/arch/rv32/sbi.zig");
+
+    // Architecture-neutral Console API wrapping the platform I/O.
+    // This is the narrow module that the low-level driver stack and the arch
+    // facade both import, avoiding dependency cycles.
+    const arch_console_module = mod.create("src/arch/rv32/console.zig");
+    arch_console_module.addImport("sbi", sbi_module);
+
     const arch_module = mod.create(arch_path);
+    arch_module.addImport("arch_console", arch_console_module);
 
     const drivers_console_module = mod.create("src/drivers/console.zig");
-    drivers_console_module.addImport("arch", arch_module);
+    drivers_console_module.addImport("arch_console", arch_console_module);
 
     // Logger depends only on console and the build options.
     const lib_logger_module = mod.create("src/lib/logger.zig");
@@ -61,7 +72,7 @@ pub fn build(b: *std.Build) void {
 
     const lib_panic_module = mod.create("src/lib/panic.zig");
     lib_panic_module.addImport("console", drivers_console_module);
-    lib_panic_module.addImport("arch", arch_module);
+    lib_panic_module.addImport("arch_console", arch_console_module);
     lib_panic_module.addImport("logger", lib_logger_module);
 
     const mm_layout_module = mod.create("src/mm/layout.zig");
