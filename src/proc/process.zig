@@ -40,7 +40,15 @@ pub const Process = struct {
     }
 
     pub fn markExited(self: *Process) void {
-        self.state = .exited;
+        // Reset slot state so it can be reused by a future process.
+        // NOTE: The bump allocator cannot free pages, so the page table
+        // and user image pages allocated for this process are leaked.
+        // A proper allocator with free() support would be needed for
+        // full process cleanup.
+        self.state = .unused;
+        self.pid = 0;
+        self.sp = 0;
+        self.page_table = undefined;
     }
 
     pub fn addressSpace(self: *Process) arch.Paging.Root {

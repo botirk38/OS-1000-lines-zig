@@ -121,8 +121,15 @@ jobs:
           -nographic \
           -serial mon:stdio \
           --no-reboot \
-          -kernel zig-out/bin/kernel.elf || true
-        echo "✓ QEMU boot test completed"
+          -kernel zig-out/bin/kernel.elf \
+          -drive id=drive0,file=disk.img,format=raw,if=none \
+          -device virtio-blk-device,drive=drive0,bus=virtio-mmio-bus.0 2>&1 | tee qemu_output.log
+        if grep -q "user: main() started" qemu_output.log; then
+          echo "✓ QEMU boot test passed"
+        else
+          echo "✗ QEMU boot test failed: expected boot message not found"
+          exit 1
+        fi
 
   code-analysis:
     name: Code Analysis
@@ -191,7 +198,7 @@ jobs:
         sudo apt-get install -y qemu-system-misc llvm
 
     - name: Build release kernel
-      run: zig build -Drelease
+      run: zig build -Doptimize=ReleaseSmall
 
     - name: Create release package
       run: |

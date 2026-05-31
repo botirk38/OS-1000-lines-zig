@@ -55,16 +55,14 @@ fn setName(dst: *[100]u8, src: []const u8) void {
     @memcpy(dst[0..len], src[0..len]);
 }
 
-pub fn init(virtio_blk: *virtio.VirtioBlk) void {
+pub fn init(virtio_blk: *virtio.VirtioBlk) !void {
     blk = virtio_blk;
 
     // Read all disk sectors into the disk buffer (matches C reference).
     log.debug("fs", "reading {} sectors ({} bytes)", .{ DISK_SIZE / SECTOR_SIZE, DISK_SIZE });
     for (0..DISK_SIZE / SECTOR_SIZE) |sector| {
         log.debug("fs", "readSector {}", .{sector});
-        blk.readSector(disk[sector * SECTOR_SIZE ..][0..SECTOR_SIZE], sector) catch |err| {
-            log.err("fs", "readSector {} failed: {}", .{ sector, err });
-        };
+        try blk.readSector(disk[sector * SECTOR_SIZE ..][0..SECTOR_SIZE], sector);
     }
 
     var off: usize = 0;
@@ -127,7 +125,15 @@ pub fn create(filename: [*:0]const u8) ?*File {
     return null;
 }
 
-pub fn flush() void {
+fn computeTarChecksum(header: *TarHeader) void {
+    @memset(header.checksum[0..8], ' ');
+    var sum: u32 = 0;
+    const bytes = @as([*]const u8, @ptrCast(header))[0..@sizeOf(TarHeader)];
+    for (bytes) |b| sum += b;
+    _ = std.fmt.bufPrint(header.checksum[0..8], "{o:0>6}\x00 ", .{sum}) catch {};
+}
+
+pub fn flush() !void {
     log.debug("fs", "flush", .{});
 
     var off: usize = 0;
@@ -148,10 +154,10 @@ pub fn flush() void {
         @memcpy(header.size[0..size_str.len], size_str);
 
         @memcpy(header.mtime[0..11], "00000000000");
-        @memcpy(header.checksum[0..8], "        ");
         header.typeflag = '0';
         header.magic = "ustar\x00".*;
         header.version = "00".*;
+        computeTarChecksum(header);
 
         @memcpy(disk[off + SECTOR_SIZE .. off + SECTOR_SIZE + file.size], file.data[0..file.size]);
 
@@ -161,8 +167,6 @@ pub fn flush() void {
 
     // Write disk back to VirtIO
     for (0..DISK_SIZE / SECTOR_SIZE) |sector| {
-        blk.writeSector(disk[sector * SECTOR_SIZE ..][0..SECTOR_SIZE], sector) catch |err| {
-            log.err("fs", "flush writeSector {} failed: {}", .{ sector, err });
-        };
+        try blk.writeSector(disk[sector * SECTOR_SIZE ..][0..SECTOR_SIZE], sector);
     }
 }
