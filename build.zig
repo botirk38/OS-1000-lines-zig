@@ -30,7 +30,7 @@ pub fn build(b: *std.Build) void {
     // Target architecture selection. Only riscv32 is supported today.
     const arch_name = b.option([]const u8, "arch", "Target architecture (default: riscv32)") orelse "riscv32";
     const arch_path = if (std.mem.eql(u8, arch_name, "riscv32"))
-        "src/arch/riscv32.zig"
+        "src/arch/rv32/arch.zig"
     else
         std.debug.panic("unsupported architecture: {s}", .{arch_name});
 
@@ -49,15 +49,21 @@ pub fn build(b: *std.Build) void {
     };
     const mod = Mod{ .b = b, .target = target, .optimize = effective_optimize };
 
+    // Low-level platform I/O: RISC-V SBI ecalls (putChar, getChar, shutdown).
+    // No kernel dependencies — safe for the lowest layers to import.
+    const sbi_module = mod.create("src/arch/rv32/sbi.zig");
+
+    // Architecture-neutral Console API wrapping the platform I/O.
+    // This is the narrow module that the low-level driver stack and the arch
+    // facade both import, avoiding dependency cycles.
+    const arch_console_module = mod.create("src/arch/rv32/console.zig");
+    arch_console_module.addImport("sbi", sbi_module);
+
     const arch_module = mod.create(arch_path);
-
-    const arch_interface_module = mod.create("src/arch/interface.zig");
-    arch_module.addImport("interface", arch_interface_module);
-
-    const drivers_sbi_module = mod.create("src/drivers/sbi.zig");
+    arch_module.addImport("arch_console", arch_console_module);
 
     const drivers_console_module = mod.create("src/drivers/console.zig");
-    drivers_console_module.addImport("sbi", drivers_sbi_module);
+    drivers_console_module.addImport("arch_console", arch_console_module);
 
     // Logger depends only on console and the build options.
     const lib_logger_module = mod.create("src/lib/logger.zig");
@@ -66,7 +72,7 @@ pub fn build(b: *std.Build) void {
 
     const lib_panic_module = mod.create("src/lib/panic.zig");
     lib_panic_module.addImport("console", drivers_console_module);
-    lib_panic_module.addImport("sbi", drivers_sbi_module);
+    lib_panic_module.addImport("arch_console", arch_console_module);
     lib_panic_module.addImport("logger", lib_logger_module);
 
     const mm_layout_module = mod.create("src/mm/layout.zig");
@@ -115,7 +121,6 @@ pub fn build(b: *std.Build) void {
     kernel_syscall_module.addImport("kernel_context", kernel_context_module);
     kernel_syscall_module.addImport("abi", abi_module);
     kernel_syscall_module.addImport("fs", fs_module);
-    kernel_syscall_module.addImport("sbi", drivers_sbi_module);
     kernel_syscall_module.addImport("logger", lib_logger_module);
     kernel_syscall_module.addImport("layout", mm_layout_module);
 

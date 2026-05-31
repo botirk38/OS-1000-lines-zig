@@ -35,13 +35,13 @@ Useful local checks:
 ## Codebase Map
 
 - `src/kernel` - kernel entry, trap handling, syscall dispatch, root kernel context
-- `src/arch` - RISC-V architecture specifics (CSR, paging, context switch, trap frame)
+- `src/arch` - RISC-V architecture specifics (`rv32/` subdirectory with struct-based namespaces: `arch.Paging`, `arch.Trap`, `arch.Context`, `arch.Syscall`, `arch.Console`)
 - `src/mm` - memory layout constants, bump allocator
 - `src/proc` - process structures, process table
 - `src/sched` - round-robin cooperative scheduler
 - `src/abi` - syscall number enum (shared ABI between kernel and user)
 - `src/fs` - tar-based filesystem using VirtIO block device
-- `src/drivers` - SBI, console (printf), VirtIO block driver
+- `src/drivers` - console (printf), VirtIO block driver (platform I/O lives in `src/arch/rv32/`)
 - `src/lib` - compile-time-filtered logger, panic, math utilities
 - `src/linker` - linker scripts for kernel and user binaries
 - `src/user` - user-space shell program and library (syscall stubs, I/O helpers)

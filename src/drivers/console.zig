@@ -1,8 +1,8 @@
-const sbi = @import("sbi");
+const io = @import("arch_console");
 
 pub fn writeString(str: []const u8) void {
     for (str) |c| {
-        sbi.putChar(c);
+        io.putChar(c);
     }
 }
 
@@ -14,7 +14,7 @@ pub fn printf(comptime fmt: []const u8, args: anytype) void {
         if (fmt[i] == '{') {
             const remaining = fmt[i + 1 ..];
             if (remaining.len == 0) {
-                sbi.putChar(fmt[i]);
+                io.putChar(fmt[i]);
                 i += 1;
                 continue;
             }
@@ -27,11 +27,11 @@ pub fn printf(comptime fmt: []const u8, args: anytype) void {
                 arg_index += 1;
                 i += consumed;
             } else {
-                sbi.putChar(fmt[i]);
+                io.putChar(fmt[i]);
                 i += 1;
             }
         } else {
-            sbi.putChar(fmt[i]);
+            io.putChar(fmt[i]);
             i += 1;
         }
     }
@@ -43,19 +43,18 @@ fn printHex(value: anytype) void {
         .int => |int_info| {
             const bit_width = int_info.bits;
             const val: u64 = @intCast(value);
-            sbi.putChar('0');
-            sbi.putChar('x');
+            io.putChar('0');
+            io.putChar('x');
 
             const hex_chars = "0123456789abcdef";
             var printed_digit = false;
 
-            // Round up bit_width to nearest multiple of 4, then walk nibbles.
             const top_shift: i8 = @intCast(@as(i16, bit_width) - 4 + (4 - @as(i16, bit_width % 4)) % 4);
             var i: i8 = top_shift;
             while (i >= 0) : (i -= 4) {
                 const nibble = @as(u8, @intCast((val >> @intCast(i)) & 0xF));
                 if (nibble != 0 or printed_digit or i == 0) {
-                    sbi.putChar(hex_chars[nibble]);
+                    io.putChar(hex_chars[nibble]);
                     printed_digit = true;
                 }
             }
@@ -64,7 +63,7 @@ fn printHex(value: anytype) void {
             printHex(@as(u32, value));
         },
         else => {
-            sbi.putChar('?');
+            io.putChar('?');
         },
     }
 }
@@ -74,7 +73,7 @@ fn printValue(value: anytype) void {
     switch (@typeInfo(T)) {
         .int => {
             if (value == 0) {
-                sbi.putChar('0');
+                io.putChar('0');
                 return;
             }
 
@@ -95,12 +94,12 @@ fn printValue(value: anytype) void {
             }
 
             if (is_negative) {
-                sbi.putChar('-');
+                io.putChar('-');
             }
 
             while (pos > 0) {
                 pos -= 1;
-                sbi.putChar(buf[pos]);
+                io.putChar(buf[pos]);
             }
         },
         .comptime_int => {
@@ -110,18 +109,18 @@ fn printValue(value: anytype) void {
             if (ptr_info.size == .slice and ptr_info.child == u8) {
                 writeString(value);
             } else {
-                sbi.putChar('?');
+                io.putChar('?');
             }
         },
         .array => |arr_info| {
             if (arr_info.child == u8) {
                 writeString(&value);
             } else {
-                sbi.putChar('?');
+                io.putChar('?');
             }
         },
         else => {
-            sbi.putChar('?');
+            io.putChar('?');
         },
     }
 }

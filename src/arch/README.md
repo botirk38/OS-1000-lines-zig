@@ -1,10 +1,14 @@
-# arch — RISC-V Architecture Layer
+# arch — Architecture Abstraction Layer
 
-Architecture-specific implementations for RISC-V 32-bit: CSR access, SV32 paging, context switching, trap frame, and the boot entry point.
+The `arch` module provides an architecture-independent interface for the kernel.
+All platform-specific implementations live in subdirectories (e.g. `rv32/`).
 
-Key types:
-- `Word` — u32 alias.
-- `VAddr`, `PAddr` — typed virtual/physical addresses.
-- `TrapFrame` — saved register state on trap entry.
-- `Paging` — `map`, `unmap`, `Root` for page table operations.
-- `Context` — `swap` and `activateAddressSpace` for process switching.
+The public API is struct-based:
+
+- `arch.Paging` — page table operations, address types
+- `arch.Trap` — trap handling, register frame, exception/interrupt types
+- `arch.Syscall` — syscall argument accessors over a trap frame
+- `arch.Context` — context switching and address space activation
+- `arch.Console` — platform console I/O (putchar, getchar, shutdown)
+
+Kernel code imports via `@import("arch")` and never imports implementation files directly.

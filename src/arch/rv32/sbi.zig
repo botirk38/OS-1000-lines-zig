@@ -1,4 +1,4 @@
-pub const SbiCall = struct {
+const Call = struct {
     a0: u32 = 0,
     a1: u32 = 0,
     a2: u32 = 0,
@@ -9,30 +9,12 @@ pub const SbiCall = struct {
     eid: u32,
 };
 
-pub const SbiRet = struct {
+const Ret = struct {
     err: u32,
     value: u32,
 };
 
-pub fn call(args: SbiCall) SbiRet {
-    var err: u32 = undefined;
-    var val: u32 = undefined;
-    asm volatile ("ecall"
-        : [err] "={a0}" (err),
-          [val] "={a1}" (val),
-        : [arg0] "{a0}" (args.a0),
-          [arg1] "{a1}" (args.a1),
-          [arg2] "{a2}" (args.a2),
-          [arg3] "{a3}" (args.a3),
-          [arg4] "{a4}" (args.a4),
-          [arg5] "{a5}" (args.a5),
-          [fid] "{a6}" (args.fid),
-          [eid] "{a7}" (args.eid),
-        : .{ .memory = true });
-    return .{ .err = err, .value = val };
-}
-
-pub const Extension = enum(u32) {
+const Extension = enum(u32) {
     legacy_set_timer = 0x00,
     legacy_console_putchar = 0x01,
     legacy_console_getchar = 0x02,
@@ -49,6 +31,24 @@ pub const Extension = enum(u32) {
     hsm = 0x48534D,
     srst = 0x53525354,
 };
+
+fn call(args: Call) Ret {
+    var err: u32 = undefined;
+    var val: u32 = undefined;
+    asm volatile ("ecall"
+        : [err] "={a0}" (err),
+          [val] "={a1}" (val),
+        : [arg0] "{a0}" (args.a0),
+          [arg1] "{a1}" (args.a1),
+          [arg2] "{a2}" (args.a2),
+          [arg3] "{a3}" (args.a3),
+          [arg4] "{a4}" (args.a4),
+          [arg5] "{a5}" (args.a5),
+          [fid] "{a6}" (args.fid),
+          [eid] "{a7}" (args.eid),
+        : .{ .memory = true });
+    return .{ .err = err, .value = val };
+}
 
 pub fn putChar(c: u8) void {
     _ = call(.{ .a0 = c, .fid = 0, .eid = @intFromEnum(Extension.legacy_console_putchar) });

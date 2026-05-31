@@ -2,7 +2,6 @@ const arch = @import("arch");
 const context = @import("kernel_context");
 const abi = @import("abi");
 const fs = @import("fs");
-const sbi = @import("sbi");
 const log = @import("logger");
 const layout = @import("layout");
 
@@ -66,7 +65,7 @@ fn write(frame: *arch.Trap.Frame) i32 {
     const ptr: [*]const u8 = @ptrFromInt(buf);
     var i: u32 = 0;
     while (i < len) : (i += 1) {
-        sbi.putChar(ptr[i]);
+        arch.Console.putChar(ptr[i]);
     }
     return @intCast(i);
 }
@@ -82,7 +81,7 @@ fn read(ctx: *context.Context, frame: *arch.Trap.Frame) i32 {
 
     const ptr: [*]u8 = @ptrFromInt(buf);
     const ch = while (true) {
-        const c = sbi.getChar();
+        const c = arch.Console.getChar();
         if (c >= 0) break c;
         ctx.yield();
     };
