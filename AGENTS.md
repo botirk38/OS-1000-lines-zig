@@ -12,7 +12,7 @@ Guidance for AI coding agents working in this repository.
 
 ## Environment Prerequisites
 
-- Zig (CI uses `0.15.2`; project targets `0.15.1+`)
+- Zig (CI uses `0.16.0`; project targets `0.16.0+`)
 - QEMU with `qemu-system-riscv32`
 - LLVM tools:
   - `llvm-objcopy`

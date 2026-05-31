@@ -45,7 +45,7 @@ pico-os is a small educational OS inspired by "Operating System in 1,000 Lines".
 
 ## Requirements
 
-- Zig 0.15.2+
+- Zig 0.16.0+
 - QEMU with riscv32 support
 - LLVM tools (objcopy, objdump, nm)
 

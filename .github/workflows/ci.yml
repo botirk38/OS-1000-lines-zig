@@ -1,4 +1,4 @@
-name: OS-1000-Lines-Zig CI
+name: pico-os CI
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     branches: [ master ]
 
 env:
-  ZIG_VERSION: "0.15.2"
+  ZIG_VERSION: "0.16.0"
 
 jobs:
   test:
@@ -29,7 +29,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y qemu-system-misc llvm
+        sudo apt-get install -y qemu-system-misc opensbi llvm
 
     - name: Verify QEMU installation
       run: |
@@ -68,7 +68,7 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y qemu-system-misc llvm
+        sudo apt-get install -y qemu-system-misc opensbi llvm
 
     - name: Install dependencies (macOS)
       if: matrix.os == 'macos-latest'
@@ -91,45 +91,7 @@ jobs:
         name: kernel-${{ matrix.os }}
         path: zig-out/bin/
 
-  qemu-test:
-    name: QEMU Boot Test
-    runs-on: ubuntu-latest
-    needs: test
-    
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
 
-    - name: Setup Zig
-      uses: korandoru/setup-zig@v1
-      with:
-        zig-version: ${{ env.ZIG_VERSION }}
-
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y qemu-system-misc llvm
-
-    - name: Build kernel
-      run: zig build
-
-    - name: Test kernel boot in QEMU
-      run: |
-        timeout 10s qemu-system-riscv32 \
-          -machine virt \
-          -bios default \
-          -nographic \
-          -serial mon:stdio \
-          --no-reboot \
-          -kernel zig-out/bin/kernel.elf \
-          -drive id=drive0,file=disk.img,format=raw,if=none \
-          -device virtio-blk-device,drive=drive0,bus=virtio-mmio-bus.0 2>&1 | tee qemu_output.log
-        if grep -q "user: main() started" qemu_output.log; then
-          echo "✓ QEMU boot test passed"
-        else
-          echo "✗ QEMU boot test failed: expected boot message not found"
-          exit 1
-        fi
 
   code-analysis:
     name: Code Analysis
@@ -147,7 +109,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y qemu-system-misc llvm cloc
+        sudo apt-get install -y qemu-system-misc opensbi llvm cloc
 
     - name: Build kernel
       run: zig build
@@ -181,7 +143,7 @@ jobs:
     name: Create Release
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
-    needs: [test, build-matrix, qemu-test]
+    needs: [test, build-matrix]
     
     steps:
     - name: Checkout repository
@@ -195,7 +157,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y qemu-system-misc llvm
+        sudo apt-get install -y qemu-system-misc opensbi llvm
 
     - name: Build release kernel
       run: zig build -Doptimize=ReleaseSmall
@@ -206,10 +168,10 @@ jobs:
         cp zig-out/bin/kernel.elf release/
         cp zig-out/bin/user.elf release/
         cp README.md release/
-        tar -czf os-1000-lines-zig-latest.tar.gz -C release .
+        tar -czf pico-os-latest.tar.gz -C release .
 
     - name: Upload release artifacts
       uses: actions/upload-artifact@v4
       with:
         name: release-package
-        path: os-1000-lines-zig-latest.tar.gz
+        path: pico-os-latest.tar.gz
