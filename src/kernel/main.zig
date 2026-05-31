@@ -37,7 +37,9 @@ export fn kernel_main() noreturn {
     };
     log.info("kernel", "VirtIO initialized", .{});
 
-    fs.init(&virtio_blk_state);
+    fs.init(&virtio_blk_state) catch |err| {
+        panic_lib.panic("fs init failed: {}", .{err});
+    };
     log.info("kernel", "filesystem initialized", .{});
 
     // Initialize root kernel context

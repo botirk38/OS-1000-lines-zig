@@ -117,6 +117,7 @@ pub fn build(b: *std.Build) void {
     kernel_syscall_module.addImport("fs", fs_module);
     kernel_syscall_module.addImport("sbi", drivers_sbi_module);
     kernel_syscall_module.addImport("logger", lib_logger_module);
+    kernel_syscall_module.addImport("layout", mm_layout_module);
 
     const kernel_trap_module = mod.create("src/kernel/trap.zig");
     kernel_trap_module.addImport("arch", arch_module);

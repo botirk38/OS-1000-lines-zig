@@ -4,6 +4,18 @@ const abi = @import("abi");
 const fs = @import("fs");
 const sbi = @import("sbi");
 const log = @import("logger");
+const layout = @import("layout");
+
+const USER_BASE = layout.USER_BASE;
+const USER_LIMIT: u32 = 0x1800000;
+
+fn validateUserPtr(addr: u32, len: u32) bool {
+    if (len == 0) return true;
+    const end = addr +% len;
+    if (end < addr or end > USER_LIMIT) return false;
+    if (addr < USER_BASE) return false;
+    return true;
+}
 
 pub fn dispatch(ctx: *context.Context, frame: *arch.Trap.Frame) void {
     const syscall_enum: abi.Syscall = @enumFromInt(arch.Syscall.number(frame));
@@ -49,6 +61,7 @@ fn write(frame: *arch.Trap.Frame) i32 {
     const len = arch.Syscall.arg(frame, 2);
 
     if (fd != 1 and fd != 2) return -1;
+    if (!validateUserPtr(buf, len)) return -1;
 
     const ptr: [*]const u8 = @ptrFromInt(buf);
     var i: u32 = 0;
@@ -65,6 +78,7 @@ fn read(ctx: *context.Context, frame: *arch.Trap.Frame) i32 {
 
     if (fd != 0) return -1;
     if (len == 0) return 0;
+    if (!validateUserPtr(buf, len)) return -1;
 
     const ptr: [*]u8 = @ptrFromInt(buf);
     const ch = while (true) {
@@ -93,9 +107,14 @@ fn getpid(ctx: *context.Context) u32 {
 }
 
 fn readFile(frame: *arch.Trap.Frame) i32 {
-    const filename: [*:0]const u8 = @ptrFromInt(arch.Syscall.arg(frame, 0));
-    const buf: [*]u8 = @ptrFromInt(arch.Syscall.arg(frame, 1));
+    const filename_addr = arch.Syscall.arg(frame, 0);
+    const buf_addr = arch.Syscall.arg(frame, 1);
     const len: usize = @truncate(arch.Syscall.arg(frame, 2));
+
+    if (!validateUserPtr(filename_addr, 1) or !validateUserPtr(buf_addr, @intCast(len))) return -1;
+
+    const filename: [*:0]const u8 = @ptrFromInt(filename_addr);
+    const buf: [*]u8 = @ptrFromInt(buf_addr);
 
     const file = fs.lookup(filename) orelse return -1;
     const copy_len = @min(len, file.size);
@@ -104,9 +123,14 @@ fn readFile(frame: *arch.Trap.Frame) i32 {
 }
 
 fn writeFile(frame: *arch.Trap.Frame) i32 {
-    const filename: [*:0]const u8 = @ptrFromInt(arch.Syscall.arg(frame, 0));
-    const buf: [*]const u8 = @ptrFromInt(arch.Syscall.arg(frame, 1));
+    const filename_addr = arch.Syscall.arg(frame, 0);
+    const buf_addr = arch.Syscall.arg(frame, 1);
     const len: usize = @truncate(arch.Syscall.arg(frame, 2));
+
+    if (!validateUserPtr(filename_addr, 1) or !validateUserPtr(buf_addr, @intCast(len))) return -1;
+
+    const filename: [*:0]const u8 = @ptrFromInt(filename_addr);
+    const buf: [*]const u8 = @ptrFromInt(buf_addr);
 
     const file = fs.lookup(filename) orelse fs.create(filename);
     const f = file orelse return -1;
@@ -115,7 +139,7 @@ fn writeFile(frame: *arch.Trap.Frame) i32 {
     @memcpy(f.data[0..copy_len], buf[0..copy_len]);
     f.size = copy_len;
 
-    fs.flush();
+    fs.flush() catch return -1;
 
     return @intCast(copy_len);
 }
