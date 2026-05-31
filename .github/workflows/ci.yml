@@ -29,7 +29,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y qemu-system-misc llvm
+        sudo apt-get install -y qemu-system-misc opensbi llvm
 
     - name: Verify QEMU installation
       run: |
@@ -68,7 +68,7 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y qemu-system-misc llvm
+        sudo apt-get install -y qemu-system-misc opensbi llvm
 
     - name: Install dependencies (macOS)
       if: matrix.os == 'macos-latest'
@@ -108,7 +108,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y qemu-system-misc llvm
+        sudo apt-get install -y qemu-system-misc opensbi llvm
 
     - name: Build kernel
       run: zig build
@@ -117,6 +117,7 @@ jobs:
       run: |
         timeout 10s qemu-system-riscv32 \
           -machine virt \
+          -bios default \
           -nographic \
           -serial mon:stdio \
           --no-reboot \
@@ -146,7 +147,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y qemu-system-misc llvm cloc
+        sudo apt-get install -y qemu-system-misc opensbi llvm cloc
 
     - name: Build kernel
       run: zig build
@@ -194,7 +195,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y qemu-system-misc llvm
+        sudo apt-get install -y qemu-system-misc opensbi llvm
 
     - name: Build release kernel
       run: zig build -Doptimize=ReleaseSmall
