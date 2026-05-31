@@ -26,7 +26,7 @@ pub const State = enum(u2) {
 
 pub const Error = error{
     NoFreeSlot,
-} || arch.PagingError || allocator.AllocError;
+} || arch.Paging.Error || allocator.AllocError;
 
 pub const Process = struct {
     pid: usize,
@@ -85,7 +85,7 @@ pub const Table = struct {
         return self.create(image);
     }
 
-    fn create(self: *Table, image: []const u8) (Error || arch.PagingError || allocator.AllocError)!*Process {
+    fn create(self: *Table, image: []const u8) (Error || arch.Paging.Error || allocator.AllocError)!*Process {
         var slot_index: usize = 0;
         var proc: ?*Process = null;
         while (slot_index < PROCS_MAX) : (slot_index += 1) {
