@@ -1,4 +1,4 @@
-name: OS-1000-Lines-Zig CI
+name: pico-os CI
 
 on:
   push:
@@ -206,10 +206,10 @@ jobs:
         cp zig-out/bin/kernel.elf release/
         cp zig-out/bin/user.elf release/
         cp README.md release/
-        tar -czf os-1000-lines-zig-latest.tar.gz -C release .
+        tar -czf pico-os-latest.tar.gz -C release .
 
     - name: Upload release artifacts
       uses: actions/upload-artifact@v4
       with:
         name: release-package
-        path: os-1000-lines-zig-latest.tar.gz
+        path: pico-os-latest.tar.gz
